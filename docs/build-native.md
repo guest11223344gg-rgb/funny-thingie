@@ -126,7 +126,9 @@ Running main() from I:\BeamNGWeb\third_party\Torque3D\Engine\source\testing\unit
 [  PASSED  ] 153 tests.
 ```
 
-All 153 tests pass and it exits 0. The two builds differ only in `main()` and
-the subsystem, which is why their sizes differ (23,800,320 with
-`TORQUE_TESTING=ON` vs 23,320,576 with `OFF`). Use `ON` only when you actually
-want to run the unit tests.
+All 153 tests pass and it exits 0. The two builds produce different exes —
+23,800,320 bytes with `TORQUE_TESTING=ON` vs 23,320,576 with `OFF` — and they
+behave differently (GUI window vs console runner). Which object files account
+for the 479,744-byte delta was **not** enumerated; the tests build links the
+GoogleTest library, but we have not verified the rest of the link set. Use
+`ON` only when you actually want to run the unit tests.

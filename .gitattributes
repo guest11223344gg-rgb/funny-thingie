@@ -1,8 +1,17 @@
 # Normalise line endings so a fresh Windows checkout (core.autocrlf=true on the
 # dev machine) behaves the same as the git index, which stores LF.
 #
-# Shell scripts must keep LF: a stray CR lands inside tokens such as the pin
-# comparison in scripts/env-check.sh. Windows batch files want CRLF, which is
-# what cmd.exe expects and what the file has historically shipped as.
+# Shell scripts must keep LF. Command substitution preserves CR on a POSIX
+# bash, so the pin comparison in scripts/env-check.sh:45 would compare
+# "<sha>\r" against "<sha>" and never match. The dev machine's MSYS2 Git Bash
+# strips the CR inside $(...), so it does not fail there today -- this rule is
+# what keeps that difference from becoming a bug on another machine or a CI
+# runner. Windows batch files want CRLF, which is what cmd.exe expects and what
+# the file has historically shipped as.
 *.sh text eol=lf
 *.cmd text eol=crlf
+
+# The pin file is read by scripts/fetch-torque3d.sh:14-19 and
+# scripts/env-check.sh:42-45 through command substitution. Same CR hazard as
+# the shell scripts above.
+third_party/Torque3D.pin text eol=lf
