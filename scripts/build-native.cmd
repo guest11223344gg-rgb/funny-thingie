@@ -43,7 +43,7 @@ if not defined VCPKG_PRESENT (
 
 "%CMAKE_BIN%" -S "%T3D%" -B "%BUILD%" -G "Visual Studio 17 2022" -A x64 ^
   -DTORQUE_APP_NAME=BaseGame ^
-  -DTORQUE_TESTING=ON ^
+  -DTORQUE_TESTING=OFF ^
   -DCMAKE_BUILD_TYPE=RelWithDebInfo
 if errorlevel 1 exit /b 1
 

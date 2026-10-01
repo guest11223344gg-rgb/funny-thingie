@@ -10,5 +10,9 @@ include("$ENV{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake
 # WebGL2 == OpenGL ES 3.0. Torque3D's shader generator must emit ES 3.00
 # source, so pin the whole project to that level rather than letting SDL or
 # Emscripten negotiate something weaker.
+#
+# -s settings are emcc *link-only*. On a compile line emcc ignores them (and
+# warns "linker setting ignored during compilation"), so this must be
+# add_link_options: an add_compile_options here would pin nothing at all.
 set(CMAKE_CXX_STANDARD 17 CACHE STRING "" FORCE)
-add_compile_options(-sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2)
+add_link_options(-sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2)

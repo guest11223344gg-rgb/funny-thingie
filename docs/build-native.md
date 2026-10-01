@@ -70,10 +70,12 @@ lands next to the game scripts:
 third_party/Torque3D/My Projects/BaseGame/game/BaseGame_OPTIMIZEDDEBUG.exe
 ```
 
-23,800,320 bytes. The `_OPTIMIZEDDEBUG` suffix is Torque3D's name for the
-`RelWithDebInfo` configuration. The runtime DLLs the build needs (`SDL2.dll`,
-`OpenAL32.dll`, `zlib.dll`, `sndfile.dll`, `D3DCompiler_47.dll`) are copied
-alongside it.
+23,320,576 bytes. The `_OPTIMIZEDDEBUG` suffix is Torque3D's name for the
+`RelWithDebInfo` configuration. This is the real game: launched from that
+directory it opens a 1920x1080 `SDL_app` window titled `BaseGame - D3D11`,
+stays running, and renders the Torque3D main menu. The runtime DLLs the build
+needs (`SDL2.dll`, `OpenAL32.dll`, `zlib.dll`, `sndfile.dll`,
+`D3DCompiler_47.dll`) are copied alongside it.
 
 Because the output directory is the source tree, the usual check
 
@@ -98,9 +100,23 @@ is how a future reader confirms the right compiler was used.
 
 ## Running it
 
-`-DTORQUE_TESTING=ON` links `Engine/source/testing/unitTesting.cpp`, which
-supplies `main()` and builds the target with `/SUBSYSTEM:CONSOLE`. The resulting
-executable is therefore a **GoogleTest runner, not the game**:
+The script configures with `-DTORQUE_TESTING=OFF`, so the executable is the
+game itself. Run it from the directory it is written to, so it finds the game
+scripts and the runtime DLLs beside it:
+
+```
+$ cd "third_party/Torque3D/My Projects/BaseGame/game" && ./BaseGame_OPTIMIZEDDEBUG.exe
+```
+
+A window titled `BaseGame - D3D11` opens and the Torque3D main menu renders.
+
+### `TORQUE_TESTING` builds a console runner, not the game
+
+`scripts/build-native.cmd` passes `-DTORQUE_TESTING=OFF`. With
+`-DTORQUE_TESTING=ON` the build instead links
+`Engine/source/testing/unitTesting.cpp`, which supplies `main()` and forces
+`/SUBSYSTEM:CONSOLE` (`Engine/source/CMakeLists.txt:786-792`). That produces a
+23,800,320-byte **GoogleTest console runner that opens no window**:
 
 ```
 $ cd "third_party/Torque3D/My Projects/BaseGame/game" && ./BaseGame_OPTIMIZEDDEBUG.exe
@@ -110,6 +126,7 @@ Running main() from I:\BeamNGWeb\third_party\Torque3D\Engine\source\testing\unit
 [  PASSED  ] 153 tests.
 ```
 
-All 153 tests pass, and it exits 0 without opening a window. To get the runnable
-game window that this baseline is meant to be, configure with
-`-DTORQUE_TESTING=OFF`.
+All 153 tests pass and it exits 0. The two builds differ only in `main()` and
+the subsystem, which is why their sizes differ (23,800,320 with
+`TORQUE_TESTING=ON` vs 23,320,576 with `OFF`). Use `ON` only when you actually
+want to run the unit tests.

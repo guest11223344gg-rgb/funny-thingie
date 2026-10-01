@@ -1,0 +1,8 @@
+# Normalise line endings so a fresh Windows checkout (core.autocrlf=true on the
+# dev machine) behaves the same as the git index, which stores LF.
+#
+# Shell scripts must keep LF: a stray CR lands inside tokens such as the pin
+# comparison in scripts/env-check.sh. Windows batch files want CRLF, which is
+# what cmd.exe expects and what the file has historically shipped as.
+*.sh text eol=lf
+*.cmd text eol=crlf

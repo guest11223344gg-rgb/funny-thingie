@@ -17,6 +17,14 @@ DEFAULT_PORT = 8080
 DEFAULT_ROOT = "build/web"
 
 
+class DevServer(socketserver.TCPServer):
+    # http.server.HTTPServer sets this, but bare socketserver.TCPServer leaves
+    # it False. Without it a restart fails with "address already in use" while
+    # the previous socket lingers in TIME_WAIT, which bites anyone running the
+    # test suite repeatedly. Bind stays loopback-only in main().
+    allow_reuse_address = True
+
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     extensions_map = {
         **http.server.SimpleHTTPRequestHandler.extensions_map,
@@ -43,7 +51,7 @@ def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_PORT
     root = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_ROOT
     handler = partial(Handler, directory=root)
-    with socketserver.TCPServer(("127.0.0.1", port), handler) as httpd:
+    with DevServer(("127.0.0.1", port), handler) as httpd:
         print(f"serving {root} at http://localhost:{port}/ (COOP/COEP on)")
         httpd.serve_forever()
 

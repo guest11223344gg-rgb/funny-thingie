@@ -42,3 +42,11 @@ set_target_properties(smoke PROPERTIES
     OUTPUT_NAME "index"
     SUFFIX ".html"
 )
+
+# shell.html is referenced only inside --shell-file, so CMake does not treat it
+# as a link input. Editing it then does not relink and the dev server silently
+# serves the stale page. Make it an explicit link dependency. The path is
+# absolute because a relative one resolves against the build directory, where
+# no shell.html exists.
+set_property(TARGET smoke APPEND PROPERTY LINK_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/shell.html")
