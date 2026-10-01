@@ -44,7 +44,10 @@ cmd.exe //c "C:\emsdk\emsdk.bat activate 4.0.9"
 - **cmake** is not on `PATH`. CMake 4.4.3 was installed via
   `winget install Kitware.CMake` and lives at `C:\Program Files\CMake\bin\cmake.exe`.
   `scripts/env-check.sh` falls back to that location when `cmake` is not on `PATH`.
-- **vcpkg** is not installed. It is not needed for M0.
+- **vcpkg** is not installed system-wide and is not on `PATH`. The Torque3D
+  build does not need one installed by hand: `Tools/CMake/torque_configs.cmake`
+  bootstraps its own checkout under `build/native/vcpkg` (see
+  `docs/build-native.md`).
 
 ## Torque3D checkout
 

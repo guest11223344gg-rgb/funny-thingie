@@ -19,6 +19,10 @@ out/
 *.wasm
 *.wasm.map
 
+# Test output. The TORQUE_TESTING build writes gtest XML to the working
+# directory, which for scripts/build-native.cmd is the repository root.
+test_detail.xml
+
 # Emscripten
 .emscripten_cache/
 
