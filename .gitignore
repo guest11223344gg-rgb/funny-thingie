@@ -2,6 +2,12 @@
 # Served from the local Steam install over localhost only. See spec section 3.
 assets/
 
+# Third-party source checkouts. Fetched by scripts/fetch-torque3d.sh, not
+# vendored — the tree is ~900 MB. The pin file IS tracked: it records which
+# upstream commit the build expects.
+third_party/*
+!third_party/Torque3D.pin
+
 # Build output
 build/
 out/
