@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>BeamNGWeb M0 smoke</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #0d0d12; overflow: hidden; }
+    #canvas { width: 100vw; height: 100vh; display: block; }
+    #hud {
+      position: fixed; top: 8px; left: 8px; color: #9f9;
+      font: 12px/1.4 ui-monospace, monospace; white-space: pre;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas" oncontextmenu="event.preventDefault()"></canvas>
+  <div id="hud"></div>
+  <script>
+    // Surface engine-side printf to the test harness via the DOM.
+    var hud = document.getElementById('hud');
+    Module = {
+      print: function (t) { hud.textContent += t + '\n'; console.log(t); },
+      printErr: function (t) { hud.textContent += t + '\n'; console.error(t); },
+    };
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>
