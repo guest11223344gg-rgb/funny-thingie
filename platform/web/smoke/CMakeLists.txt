@@ -6,6 +6,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(smoke main.cpp)
 
+# -pthread is required on the compile line as well as the link line. The link
+# step below emits --shared-memory, and wasm-ld rejects that unless the objects
+# were themselves built with the atomics and bulk-memory features, which only
+# the compile-side -pthread turns on. Link-only flags fail with:
+#   wasm-ld: error: --shared-memory is disallowed by main.cpp.o because it was
+#   not compiled with 'atomics' or 'bulk-memory' features.
+target_compile_options(smoke PRIVATE -pthread)
+
 # The `-o` below is the single source of truth for the output name: emcc names
 # the sibling .js/.wasm after the .html basename, so index.html yields
 # index.js/index.wasm next to it. The page must be index.html because the dev
@@ -15,6 +23,11 @@ target_link_options(smoke PRIVATE
     -sMAX_WEBGL_VERSION=2
     -sALLOW_MEMORY_GROWTH=1
     -sSTACK_SIZE=5242880
+    # Threading. PTHREAD_POOL_SIZE pre-spawns workers because the main
+    # thread cannot block on a new thread in a browser.
+    -pthread
+    -sPTHREAD_POOL_SIZE=4
+    -sPROXY_TO_PTHREAD=0
     --shell-file "${CMAKE_CURRENT_SOURCE_DIR}/shell.html"
     -o "${CMAKE_BINARY_DIR}/index.html"
 )

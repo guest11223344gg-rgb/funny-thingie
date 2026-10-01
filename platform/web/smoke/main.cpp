@@ -88,6 +88,34 @@ static void frame() {
     glDrawArrays(GL_TRIANGLES, 0, 3);
 }
 
+// --- threading probe -------------------------------------------------------
+// Writes a value to a shared buffer from a worker thread and reads it back on
+// the main thread. This is the exact mechanism the vehicle simulation will use
+// to publish transforms, reduced to its smallest testable form.
+#include <atomic>
+#include <thread>
+#include <chrono>
+
+static std::atomic<int> g_threadResult{0};
+
+static void threadProbe() {
+    std::thread worker([] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        g_threadResult.store(4242, std::memory_order_release);
+    });
+    worker.join();  // joining forces the pthread machinery to be real
+}
+
+static void checkThreadProbe() {
+    if (g_threadResult.load(std::memory_order_acquire) == 4242) {
+        printf("thread roundtrip ok\n");
+        EM_ASM({ window.__threadTestDone = true; });
+    } else {
+        printf("thread roundtrip FAILED\n");
+        EM_ASM({ window.__threadTestDone = true; });
+    }
+}
+
 int main() {
     // Ask for GLES3 explicitly; the default is GLES2, which cannot compile
     // the "#version 300 es" shaders above.
@@ -108,6 +136,8 @@ int main() {
     emscripten_webgl_make_context_current(ctx);
 
     init();
+    threadProbe();
+    checkThreadProbe();
     emscripten_set_main_loop(frame, 0, 0);
     return 0;
 }
