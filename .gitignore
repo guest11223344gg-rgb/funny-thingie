@@ -1,0 +1,28 @@
+# BeamNG content — licensed material, never committed, never deployed.
+# Served from the local Steam install over localhost only. See spec section 3.
+assets/
+
+# Build output
+build/
+out/
+*.o
+*.obj
+*.a
+*.lib
+*.exe
+*.wasm
+*.wasm.map
+
+# Emscripten
+.emscripten_cache/
+
+# Editor / OS
+.vs/
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
