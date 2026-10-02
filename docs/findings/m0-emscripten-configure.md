@@ -113,6 +113,15 @@ library**. `nfd_zenity.c` must still compile in Task 8, and Zenity is a host
 subprocess with no browser equivalent. The library is still wrong for this target;
 it simply no longer breaks *configure*.
 
+**Was a true exclusion impossible, or merely not attempted?** Not attempted, and
+not reachable from outside the engine tree. `nativeFileDialogs` is added
+unconditionally at `Engine/lib/CMakeLists.txt:115`
+(`add_subdirectory(nativeFileDialogs ${TORQUE_LIB_TARG_DIRECTORY}/nfd
+EXCLUDE_FROM_ALL)`) — there is no option guarding that line, so dropping the
+library means editing Torque3D itself. That is the same structural limit that
+rules out a Freetype bypass (section 6). Swapping the backend is the reachable
+fix; excluding the library is not.
+
 ---
 
 ## 3. Category: `${WIN32}` expands to nothing — CMake argument collapse
@@ -226,21 +235,37 @@ BEFORE project: WIN32=[1] UNIX=[]   APPLE=[]
 AFTER  project: WIN32=[]  UNIX=[1]  APPLE=[]
 ```
 
-`Tools/CMake/torque_configs.cmake` is included at `CMakeLists.txt:19`, i.e.
-**before** `project()` at `CMakeLists.txt:22`, so it runs entirely inside the
-window where `WIN32=1`. Consequences, mostly verified in the cache:
+`Tools/CMake/torque_configs.cmake` is included at `CMakeLists.txt:20`, i.e.
+**before** `project()` at `CMakeLists.txt:25`, so it runs entirely inside the
+window where `WIN32=1`. Consequences, each cited to the source line that
+produces it rather than to a cache dump — see the note on cache citations below:
 
 | Symptom | Cause | Evidence |
 |---|---|---|
-| `VCPKG_TARGET_TRIPLET:STRING=x64-windows-mixed` | `torque_configs.cmake:45 if(WIN32)` true at that moment (triplet set at `:49`) | run-3 cache |
-| `TORQUE_D3D11:BOOL=ON` by default | `torque_configs.cmake:144` inside `if(WIN32)`; also `addDef(TORQUE_D3D11)` at `:145` | run-1 cache |
-| vcpkg bootstrap ran `bootstrap-vcpkg.bat` semantics (downloaded `vcpkg.exe`) | `torque_configs.cmake:35 if(WIN32)`, command at `:36` | run-1 log lines 5-8 |
-| `WIN32` never forced into the cache | `torque_configs.cmake:106 if(NOT WIN32)` false | no `WIN32` cache entry in run 1 |
+| `VCPKG_TARGET_TRIPLET` resolved to `x64-windows-mixed` | `torque_configs.cmake:45 if(WIN32)` true at that moment (triplet set at `:49`) | `torque_configs.cmake:45-49` |
+| `TORQUE_D3D11:BOOL=ON` by default | `torque_configs.cmake:144` inside `if(WIN32)`; also `addDef(TORQUE_D3D11)` at `:145` | `torque_configs.cmake:144-145` |
+| vcpkg bootstrap ran `bootstrap-vcpkg.bat` semantics (downloaded `vcpkg.exe`) | `torque_configs.cmake:35 if(WIN32)`, command at `:36` | `torque_configs.cmake:35-36`; run-1 log lines 5-8 |
+| `WIN32` never forced into the cache | `torque_configs.cmake:106 if(NOT WIN32)` false | `torque_configs.cmake:106` |
 
-Then after `project()`, `WIN32` is empty and `UNIX=1`, so `Engine/` takes every
-Linux branch: `platformPOSIX` (`Engine/source/CMakeLists.txt:233`),
-`platformX86UNIX` (`:237`), `platformX11` (`:257`), and `find_package(Freetype
-REQUIRED)` (`:60`). Meanwhile `TORQUE_D3D11` was already defaulted ON and stays
+**On cache citations.** All three runs shared `-B build/web-t3d`, so run 1's
+`CMakeCache.txt` was overwritten by run 3's, and `build/` is git-ignored so
+neither is committed. Re-deriving run 1's `TORQUE_D3D11=ON` from a cache now
+requires re-running the unpatched configure. Each row above is therefore cited to
+the `torque_configs.cmake` line that produces the value. The values were read from
+the live cache at the time of writing and match those source lines.
+
+**Observed:** `WIN32` and `UNIX` swap across `project()`, exactly as printed
+above. **Inferred, not observed:** because `UNIX=1` after `project()`, `Engine/`
+should take its Linux branches — `platformPOSIX`
+(`Engine/source/CMakeLists.txt:233`), `platformX86UNIX` (`:237`), `platformX11`
+(`:257`), and `find_package(Freetype REQUIRED)` (`:60`). No run reached any of
+those lines: all three aborted at `Engine/source/CMakeLists.txt:11`, well before
+them (section 4). Those branches are read from the source guards, not from a
+configure that took them, so this half of the hybrid is a prediction. It is a
+prediction with a mechanically forced outcome, and nothing else observed
+contradicts it — but it was not measured.
+
+Meanwhile `TORQUE_D3D11` was already defaulted ON and stays
 ON in the cache (it is inert for source selection because the D3D code is
 guarded by `if (WIN32 AND TORQUE_D3D11)`, but it is semantically wrong and will
 matter in Task 8).
@@ -294,7 +319,8 @@ isolated probe, not from the Torque3D configure.
 The brief asked specifically whether `Tools/CMake/torque_configs.cmake:2-44`
 fires under Emscripten and whether it fights the toolchain file.
 
-**It fired.** Run 1's log lines 2-20:
+**It fired.** Excerpt from run 1's log lines 2-20 — vcpkg's telemetry block and the
+per-file clone progress are elided, so this is not a run of contiguous lines:
 
 ```
 -- Bootstrapping vcpkg...
@@ -395,11 +421,15 @@ Configure never completed, so **no targets were generated** and there is no
 - `CMake Warning` about `Tools/CMake/finders/FindZlib.cmake` module-name case
   mismatch, and a `FindZLIB`-module deprecation warning. Benign.
 - `-- Performing Test CHECK_CPU_ARCHITECTURE_X86 - Failed` and friends: the CPU
-  detection tests all fail under wasm. The `cmake_minimum_required`-era
-  `CMAKE_CXX_SIZEOF_DATA_PTR` check is what actually decides: it is 4
-  (`build/web-t3d/CMakeFiles/4.4.3/CMakeCXXCompiler.cmake:69`), so the top-level
-  `CMakeLists.txt` sets `TORQUE_CPU_X32` ON, which is what pulls in
-  `platformX86UNIX` at `Engine/source/CMakeLists.txt:237`.
+  detection tests all fail under wasm. That the test fails is observed. The
+  consequence is inferred: the `cmake_minimum_required`-era
+  `CMAKE_CXX_SIZEOF_DATA_PTR` check is what decides, and it reads 4 in the
+  generated toolchain file
+  (`build/web-t3d/CMakeFiles/4.4.3/CMakeCXXCompiler.cmake:69` — a transient,
+  uncommitted build artifact, not reproducible from the repo alone). If
+  `TORQUE_CPU_X32` is consequently ON, that would pull in `platformX86UNIX` at
+  `Engine/source/CMakeLists.txt:237` — but configure aborted at `:11` and never
+  reached `:237`. Inference, not observation.
 
 ---
 
@@ -411,7 +441,9 @@ with reasons inline: `WIN32=OFF`, `TORQUE_D3D11=OFF`, `TORQUE_OPENGL=ON`,
 `TORQUE_SDL=ON`, `TORQUE_USE_ZENITY=ON`. It deliberately does **not** touch the
 Freetype call or the audio `find_package`s, for the reasons in sections 4 and 6.
 
-Verified landing (run-3 cache): `WIN32:BOOL=OFF`, `TORQUE_D3D11:BOOL=OFF`,
+Verified landing (read from the live `CMakeCache.txt` of run 3, which is the
+surviving one; `build/` is git-ignored, so this is not reproducible from the repo
+alone): `WIN32:BOOL=OFF`, `TORQUE_D3D11:BOOL=OFF`,
 `TORQUE_OPENGL:BOOL=ON`, `TORQUE_SDL:BOOL=ON`, `TORQUE_USE_ZENITY:BOOL=ON`,
 `CMAKE_PROJECT_INCLUDE:UNINITIALIZED=.../cmake/torque3d-emscripten.cmake`.
 

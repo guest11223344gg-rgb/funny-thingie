@@ -11,12 +11,12 @@
 # WHEN THIS FILE RUNS, AND WHY THAT MATTERS
 # ---------------------------------------------------------------------------
 # CMAKE_PROJECT_INCLUDE is processed immediately AFTER the top-level
-# project() call in third_party/Torque3D/CMakeLists.txt:22. The order is:
+# project() call in third_party/Torque3D/CMakeLists.txt:25. The order is:
 #
-#   1. CMakeLists.txt:19  include(Tools/CMake/torque_configs.cmake)
-#   2. CMakeLists.txt:22  project(${TORQUE_APP_NAME})   <- toolchain file loads,
+#   1. CMakeLists.txt:20  include(Tools/CMake/torque_configs.cmake)
+#   2. CMakeLists.txt:25  project(${TORQUE_APP_NAME})   <- toolchain file loads,
 #                                                          then THIS file runs
-#   3. CMakeLists.txt:85  add_subdirectory(Engine)
+#   3. CMakeLists.txt:87  add_subdirectory(Engine)
 #
 # CMake initialises WIN32/UNIX/APPLE from the *host* until project() replaces
 # them with target values. Verified on this machine:
@@ -27,8 +27,15 @@
 # torque_configs.cmake runs at step 1, i.e. in the window where WIN32=1. That
 # is why an Emscripten configure still picks the Windows-host vcpkg triplet
 # (x64-windows-mixed) and still defaults TORQUE_D3D11 ON. By step 3, WIN32 is
-# empty and UNIX=1, so every `if(UNIX AND NOT APPLE)` branch in Engine/ is
-# taken instead. The configure is therefore a Windows-host/Linux-target hybrid.
+# empty and UNIX=1, so the `if(UNIX AND NOT APPLE)` branches in Engine/ are
+# selected instead. The configure is therefore a Windows-host/Linux-target
+# hybrid.
+#
+# Note which half of that is observed: the WIN32/UNIX swap above is printed from
+# the configure and is certain. The consequence for Engine/ is read from the
+# source guards, not from a configure that reached them -- every run aborted at
+# Engine/source/CMakeLists.txt:11, before the platform-selection block. See
+# docs/findings/m0-emscripten-configure.md section 5.
 #
 # Everything below is a CACHE variable set FORCE, because the code that reads
 # it lives in files processed at step 3, after this file has run.
@@ -67,7 +74,7 @@ set(TORQUE_D3D11 OFF CACHE BOOL "Allow Direct3D 11 render" FORCE)
 # explicit and survives any future default change.
 set(TORQUE_OPENGL ON CACHE BOOL "Allow OpenGL render" FORCE)
 
-# SDL is the platform interop layer. Engine/source/CMakeLists.txt:30 forces
+# SDL is the platform interop layer. Engine/source/CMakeLists.txt:31 forces
 # this ON unconditionally; declared here so the override set is self-describing.
 set(TORQUE_SDL ON CACHE BOOL "Use SDL for platform interop" FORCE)
 
