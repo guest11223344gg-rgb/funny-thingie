@@ -1,0 +1,19 @@
+--- a/Engine/source/core/util/refBase.h
++++ b/Engine/source/core/util/refBase.h
+@@ -104,12 +104,12 @@
+    bool isValid() const { return getPointer() != NULL; }
+    bool isNull() const { return getPointer() == NULL; }
+    
+-   [[nodiscard]] constexpr T* operator->()      const { return getPointer(); }
+-   [[nodiscard]] constexpr T& operator*()       const { return *getPointer(); }
+-   [[nodiscard]] constexpr operator T*()        const { return getPointer(); }
++   [[nodiscard]] T* operator->()      const { return getPointer(); }
++   [[nodiscard]] T& operator*()       const { return *getPointer(); }
++   [[nodiscard]] operator T*()        const { return getPointer(); }
+    
+    /// Returns the pointer.
+-   [[nodiscard]] constexpr T* getPointer() const
++   [[nodiscard]] T* getPointer() const
+    {
+       auto ctrl = mWeak.lock();
+       if (!ctrl || !ctrl->object)

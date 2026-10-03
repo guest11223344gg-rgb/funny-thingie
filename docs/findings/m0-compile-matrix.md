@@ -6,7 +6,10 @@ porting plan: it says which subsystems resist the Emscripten toolchain and
 roughly why, so the plan can attack them in a sensible order.
 
 Pinned revision: `4c44642aab32cf79be4f66966d49fd74ab18e221`.
-Toolchain: Emscripten 4.0.9, `-std=c++23`, `-pthread`.
+Toolchain: Emscripten 4.0.9, `-pthread`. The sweep was run twice: at **C++17**
+(the standard the M0a plan pins and upstream declares) and at `-std=c++23` as a
+control. **C++17 is the primary result.** The C++23 run exists to show what the
+same rows do once the `refBase.h` blocker in section 2.1 is out of the way.
 
 > **Read the limits section before quoting any row.** "Compiled" here means one
 > translation unit produced an object file. It does **not** mean the subsystem
@@ -45,9 +48,17 @@ each translation unit was compiled directly, bypassing CMake entirely:
 unset CC CXX                      # an inherited CC shadows emcc and silently wins
 EMCC=/c/emsdk/upstream/emscripten/emcc
 "$EMCC" -c <file.cpp> -o out.o \
-  -std=c++23 -pthread \
+  -std=c++17 -pthread \
   -I<include paths> -D<defines>
 ```
+
+The identical command with `-std=c++23` in place of `-std=c++17` was run as a
+control. The harness hard-codes the standard at
+`docs/findings/m0-compile-matrix-harness.sh:50`; the C++17 run was produced by
+`sed 's/-std=c++23/-std=c++17/'` over it. The two runs write to different
+`T8_WORKDIR`s and keep separate logs, so neither overwrites the other. The C++17
+logs are under `build/probe-cxx17/logs/` (git-ignored); the original C++23 logs are
+under `build/t3d-wasm-matrix/logs/`.
 
 Defines, fixed for every row:
 
@@ -87,7 +98,89 @@ run and only revealed its real error once the include was fixed (section 4.3).
 
 ## 2. The matrix
 
-84 rows. **80 compiled, 3 failed, 1 could not be compiled as posed.**
+The sweep was run twice. **C++17 is the primary result:** it is the standard the
+M0a plan pins (Global Constraints, `docs/superpowers/plans/2026-10-01-m0-walking-skeleton.md`)
+and the one upstream declares at `third_party/Torque3D/CMakeLists.txt:2`
+(`set (CMAKE_CXX_STANDARD 17)`). The `-std=c++23` run is kept as a control.
+
+| Run | Compiles | Fails | Blocked |
+|---|---|---|---|
+| **C++17 — pinned standard (primary)** | **7** | **76** | **1** |
+| C++23 (control) | 80 | 3 | 1 |
+
+### 2.1 C++17 — the pinned standard (primary result)
+
+**7 of the 84 rows compile.** By directory:
+
+| Directory | Rows | Result |
+|---|---|---|
+| `core` | 6 | 2 pass, 4 fail |
+| `math` | 5 | 0 pass, 5 fail |
+| `util` | 4 | 0 pass, 4 fail |
+| `console` | 6 | 1 pass, 5 fail |
+| `platform` | 7 | 1 pass, 5 fail, 1 blocked |
+| `platformSDL` | 5 | 2 pass, 3 fail |
+| `platformPOSIX` | 6 | 1 pass, 5 fail |
+| `windowManager` | 4 | 0 pass, 4 fail |
+| `gfx/gl` | 6 | 0 pass, 6 fail |
+| `shaderGen` | 4 | 0 pass, 4 fail |
+| `materials` | 4 | 0 pass, 4 fail |
+| `scene` | 4 | 0 pass, 4 fail |
+| `ts` | 4 | 0 pass, 4 fail |
+| `terrain` | 3 | 0 pass, 3 fail |
+| `sfx` | 4 | 0 pass, 4 fail |
+| `app` | 3 | 0 pass, 3 fail |
+| `main` | 1 | 0 pass, 1 fail |
+| `gui` | 4 | 0 pass, 4 fail |
+| `T3D` | 4 | 0 pass, 4 fail |
+
+The 7 rows that compile: `core/stringTable.cpp`, `core/frameAllocator.cpp`,
+`console/torquescript/parser.cpp`, `platform/platformFont.cpp`,
+`platformSDL/sdlPlatform.cpp`, `platformSDL/sdlCPUInfo.cpp`,
+`platformPOSIX/POSIXGL.client.cpp`.
+
+#### The `refBase.h:114` blocker
+
+**77 of the 84 logs contain the same error, on the same line of the same header:**
+
+```
+error: variable of non-literal type 'shared_ptr<WeakControlBlock>' cannot be
+       defined in a constexpr function before C++23
+```
+
+That is `Engine/source/core/util/refBase.h:114`, `auto ctrl = mWeak.lock();`
+inside `[[nodiscard]] constexpr T* getPointer() const` (lines 112-118). The method
+is marked `constexpr`; it locks a `weak_ptr`, which is not a constant expression
+before C++23. **One header, one construct.**
+
+Of those 77 logs, 76 are classified `FAIL`; the 77th is the `platformMemory.cpp`
+row (section 4.4), which pulls in `refBase.h` before it reaches the `execinfo.h`
+include that actually blocks it. Because essentially the whole sample reaches this
+header, it is what gates the pinned-standard number.
+
+**Root cause, stated plainly:** upstream Torque3D declares C++17 and then uses a
+construct that is ill-formed before C++23. MSVC accepts it as an extension, which
+is why the native build never surfaced it; clang/emcc, under `-std=c++17`, refuses
+it. **This is the same class of trap as the `S64` width in section 3** — a latent
+mis-declaration that a permissive compiler hides and a strict one exposes — and it
+is now the **second instance of that pattern** this sweep has found.
+
+It is recorded as a **named, bounded blocker**, not as evidence that the port is
+broadly harder. The framing that matters: at the pinned standard only 7 of 84
+sample rows compile, but 77 of the failures are one header with one ill-formed
+construct, and the fix is small and local. It is the difference between 7 and
+roughly 80 compiling rows.
+
+**Status: observed.** The error text, header, line and the 77-log count are in the
+raw logs under `build/probe-cxx17/logs/`. The MSVC-accepts / clang-refuses
+attribution is inferred — from the error's presence under clang and the known
+success of the native build — and was **not** re-tested by compiling this header
+under MSVC as part of this sweep.
+
+### 2.2 C++23 — the control run
+
+Run first, at `-std=c++23`. **80 compiled, 3 failed, 1 could not be compiled as
+posed.**
 
 | Directory | Rows | Result | Representative translation units |
 |---|---|---|---|
@@ -113,7 +206,9 @@ run and only revealed its real error once the include was fixed (section 4.3).
 
 15 of 19 directories compiled every file tried. The four that did not are
 `math`, `platform`, `platformPOSIX` and `ts` — and in three of those four the
-failure is a single file with a single cause.
+failure is a single file with a single cause. The C++23 result must not be read as
+the port's difficulty: it is what the rows do once the `refBase.h` blocker that
+dominates the pinned-standard run is no longer in the way.
 
 ---
 
@@ -154,7 +249,8 @@ Engine/source/core/util/timeClass.h:65:39: warning: implicit conversion from
 ```
 
 `8640000000` (100 days in milliseconds) truncates to `50065408`. This warning
-appears in **44 of the 84 logs**. A companion symptom,
+appears in **44 of the 84 logs in both runs** — the `S64` typedef does not depend
+on the compiler standard. A companion symptom,
 `timeClass.h:275:25: warning: shift count >= width of type`, is the same root
 cause.
 
@@ -176,7 +272,15 @@ non-x86 target is a lie that happens to work, so the guard is the honest fix.
 
 ---
 
-## 4. The four rows that did not compile
+## 4. The four rows that did not pass
+
+These are the rows that did not pass in the **C++23 control run** (section 2.2),
+each with its own cause. Under the pinned C++17 they fail earlier, on
+`refBase.h:114` (section 2.1): `mMathSSE`, `tsMesh` and `platformMemory` carry
+their own errors *after* that one in the log, and `POSIXMath`'s x87 error is not
+emitted at all. The earlier error masks the later one — which is the same point
+section 1 makes about the COLLADA include: recording the first error and stopping
+gives the wrong cause.
 
 ### 4.1 `math/mMathSSE.cpp` — hand-written x86 assembly
 
@@ -258,6 +362,11 @@ Stated so the matrix is not read as a stronger result than it is:
 - **Rows are conditional on the define set in section 1**, and in particular on
   `-Dlinux`. Different defines select different platform paths and would produce a
   different matrix.
+- **Rows are conditional on the compiler standard.** The same 84 rows give 7
+  compiling at the pinned `-std=c++17` and 80 at `-std=c++23`; the entire
+  difference is `refBase.h:114` (section 2.1), which clang/emcc accepts only at
+  C++23. Like `-Dlinux`, the standard is load-bearing, and any row quoted is
+  conditional on it.
 - **The `-I` list was assembled by iteration**, adding paths as errors demanded.
   It is recorded in full so it can be reproduced, but it is not a claim about
   what the correct include set ought to be.
@@ -270,15 +379,19 @@ Stated so the matrix is not read as a stronger result than it is:
 ## 6. Reproducing
 
 Harness: `docs/findings/m0-compile-matrix-harness.sh` (the sweep driver — it
-compiles each listed file with the flags above and writes one log per file).
+compiles each listed file with the flags above and writes one log per file). It
+hard-codes `-std=c++23` at line 50, so it reproduces the **control** run as-is.
 Raw logs for the four rows that did not pass are committed as
-`m0-compile-matrix-failures.txt`. The 80 passing rows are not committed
-individually; the driver regenerates them.
+`m0-compile-matrix-failures.txt`. The passing rows are not committed individually;
+the driver regenerates them — 80 rows for the C++23 control, 7 for the C++17
+primary run.
 
 ```bash
 source /c/emsdk/emsdk_env.sh
 unset CC CXX
-bash docs/findings/m0-compile-matrix-harness.sh
+bash docs/findings/m0-compile-matrix-harness.sh                 # C++23 control
+sed 's/-std=c++23/-std=c++17/' docs/findings/m0-compile-matrix-harness.sh > h17.sh
+T8_WORKDIR=build/probe-cxx17 bash h17.sh                        # C++17 primary
 ```
 
 ---
@@ -310,10 +423,12 @@ source. Verified against the matrix:
    blocking loop compiles fine and hangs the browser. Real work, invisible here.
 
 **The pattern:** the brief's four predicted hard areas are all *runtime
-semantics*, and all four compile clean. The three genuine compile failures are in
-places the brief did not name — x86 inline assembly in `math` and `platformPOSIX`,
-an MSVC-ism in the bundled Opcode library, and one glibc header. And the most
-consequential finding of all is a warning the brief did not anticipate.
+semantics*, and all four compiled clean in the C++23 control run (at the pinned
+C++17 they fail earlier, on `refBase.h:114`, not on the concerns the brief named).
+The three genuine compile failures are in places the brief did not name — x86
+inline assembly in `math` and `platformPOSIX`, an MSVC-ism in the bundled Opcode
+library, and one glibc header. And the most consequential finding of all is a
+warning the brief did not anticipate.
 
 The lesson for M0b, and the reason this probe was worth running: source-reading
 predicted the wrong failures. The predicted ones are real but they are the ones
@@ -327,6 +442,11 @@ that will silently corrupt behaviour at runtime is different again.
 Not a plan — the plan is M0b's to write against these findings. Recorded because
 the matrix exists to determine order:
 
+- **Bounded, mechanical, and highest-leverage at the pinned standard:**
+  `refBase.h:114` (section 2.1) — one header, one construct, 77 of the 84 logs.
+  Fixing it is likely cheaper than repairing the configure, and it takes the
+  pinned-standard matrix from 7 to roughly 80 compiling rows. It should be a
+  first-class M0b work item, not a footnote.
 - **Bounded and mechanical:** the Opcode `__declspec` row (4.3), the `execinfo.h`
   row (4.4).
 - **Bounded but needs a decision:** the `S64` width (section 3) — the fix is

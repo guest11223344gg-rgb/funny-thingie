@@ -36,6 +36,17 @@ case "$TARGET" in
     ;;
 esac
 
+# An inherited CC shadows emcc and silently wins, producing confusing host
+# errors (see docs/findings/m0-compile-matrix-harness.sh).
+unset CC CXX
+
+# Torque3D builds from a patched tree; apply the tracked patches first so a
+# build can never run against a pristine checkout. Skipped when the engine is
+# not fetched, so the smoke target still builds standalone.
+if [ -d third_party/Torque3D/.git ]; then
+  bash scripts/apply-patches.sh
+fi
+
 emcmake cmake -S "$SRC" -B "$BUILD" \
   -DCMAKE_TOOLCHAIN_FILE="$PWD/cmake/toolchains/emscripten.cmake" \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo

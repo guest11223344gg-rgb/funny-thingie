@@ -16,6 +16,7 @@ if [ -d "$DEST/.git" ]; then
   if [ "$CURRENT" = "$PIN" ]; then
     echo "already at $PIN"
     echo "$PIN" > "$PIN_FILE"
+    bash scripts/apply-patches.sh
     exit 0
   fi
   echo "checking out $PIN (was $CURRENT)"
@@ -34,3 +35,8 @@ fi
 
 git -C "$DEST" rev-parse HEAD > "$PIN_FILE"
 echo "pinned at $(cat "$PIN_FILE")"
+
+# A checkout at the pin is pristine; the tracked patches in patches/torque3d/
+# are what make it buildable for wasm. Applying them here means a fresh fetch
+# produces a usable tree, and re-running is a no-op.
+bash scripts/apply-patches.sh

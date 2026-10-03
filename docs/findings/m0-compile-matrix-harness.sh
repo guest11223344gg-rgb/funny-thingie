@@ -43,11 +43,28 @@ INC=(-I"$T3D/Engine/source" -I"$T3D/Engine/source/platform" -I"$T3D/Engine/lib/s
 # -Dlinux / -D__linux__ is a deliberate choice: it selects the Linux paths, which
 # is the half of the configure's Windows-host/Linux-target hybrid that Emscripten
 # would take. Rows are conditional on it.
-DEF=(-Dlinux -D__x86_64__ -D__linux__ -DTORQUE_OPENGL -DTORQUE_SDL
-     -DTORQUE_ADVANCED_LIGHTING -DTORQUE_BASIC_LIGHTING -DTORQUE_OGGVORBIS
-     -DTORQUE_OGGTHEORA -DTORQUE_RELEASE -DTORQUE_ENABLE_ASSERTS
-     -DTORQUE_DEBUG_GFX_MODE)
-STD=(-std=c++23)
+#
+# -D__x86_64__ is *probe scaffolding*, not what a real wasm build uses: emcc
+# defines __wasm32__ / __EMSCRIPTEN__ and does NOT define __x86_64__. It was
+# present to test the "configure classifies the target as Linux-x86" hypothesis.
+# Override the whole set with T8_DEF to re-baseline against emcc's real defines
+# (see docs/findings/m0b-define-baseline.md).
+if [ -n "${T8_DEF:-}" ]; then
+  read -r -a DEF <<< "$T8_DEF"
+else
+  DEF=(-Dlinux -D__x86_64__ -D__linux__ -DTORQUE_OPENGL -DTORQUE_SDL
+       -DTORQUE_ADVANCED_LIGHTING -DTORQUE_BASIC_LIGHTING -DTORQUE_OGGVORBIS
+       -DTORQUE_OGGTHEORA -DTORQUE_RELEASE -DTORQUE_ENABLE_ASSERTS
+       -DTORQUE_DEBUG_GFX_MODE)
+fi
+
+# The compiler standard is likewise overridable: the plan pins C++17, and the
+# C++23 run exists only as a control.
+if [ -n "${T8_STD:-}" ]; then
+  read -r -a STD <<< "$T8_STD"
+else
+  STD=(-std=c++23)
+fi
 
 compile_one() {
   local LABEL="$1" REL="$2"

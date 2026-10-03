@@ -31,14 +31,14 @@ summary would corrupt that input.
 | pthreads + `SharedArrayBuffer` in the browser | **Works**, under cross-origin isolation |
 | Localhost dev server with COOP/COEP headers | **Works** |
 | Torque3D's own CMake configure under Emscripten | **Fails.** Root cause isolated, not yet fixed |
-| Torque3D compiled to wasm | **Not done.** 80 of 84 sampled translation units compile in isolation; nothing is linked, nothing is run |
+| Torque3D compiled to wasm | **Not done.** 7 of 84 sampled translation units compile at the pinned C++17 (80 of 84 at C++23); nothing is linked, nothing is run |
 | BeamNG assets, physics, gameplay, UI | **Not started** |
 
 `platform/web/smoke/` is a **test harness, not the game**. It exists to prove the
 browser toolchain, the GL context and threading work before anything depends on
 them.
 
-### Two findings worth knowing before you read anything else
+### Three findings worth knowing before you read anything else
 
 **1. Torque3D's `S64` and `U64` are 32 bits wide under wasm32.** This is silent.
 
@@ -56,6 +56,17 @@ CMake initialises `WIN32=1` from the host *before* `project()` and `UNIX=1`
 it selects a Windows vcpkg triplet and defaults D3D11 on, while `Engine/` then
 assembles for X11 Linux. The configure is a Windows-host / Linux-target hybrid —
 neither half describes a browser.
+
+**3. One header blocks most of the engine at the standard it declares.**
+
+`Engine/source/core/util/refBase.h:114` marks an accessor `constexpr` and then
+locks a `weak_ptr` inside it — ill-formed before C++23. Upstream declares C++17
+(`third_party/Torque3D/CMakeLists.txt:2`), and MSVC accepts the construct as an
+extension, so the native build never saw it. Under `emcc` at the pinned standard
+it fails, and it appears in **77 of the 84** sampled logs — the difference
+between 7 compiling translation units and roughly 80. It is the same class of
+trap as the `S64` width: a latent mis-declaration that a permissive compiler
+hides and a strict one exposes.
 
 Full detail, with raw logs and reproduction commands:
 [`docs/findings/m0-emscripten-configure.md`](docs/findings/m0-emscripten-configure.md),
@@ -204,7 +215,7 @@ This is a personal project and is **not a distribution of BeamNG.drive**.
 | Document | What it covers |
 | --- | --- |
 | [`docs/superpowers/specs/`](docs/superpowers/specs/) | The design spec: architecture, milestones, risks |
-| [`docs/superpowers/plans/`](docs/superpowers/plans/) | The M0a implementation plan |
+| [`docs/superpowers/plans/`](docs/superpowers/plans/) | The implementation plans: M0a (walking skeleton), M0b (wasm link, boot, render) |
 | [`docs/findings/m0-emscripten-configure.md`](docs/findings/m0-emscripten-configure.md) | What Torque3D's CMake does under Emscripten, with raw logs |
 | [`docs/findings/m0-compile-matrix.md`](docs/findings/m0-compile-matrix.md) | The 84-translation-unit wasm compile sweep |
 | [`docs/findings/m0-summary.md`](docs/findings/m0-summary.md) | M0 synthesis and the recommendation for what comes next |

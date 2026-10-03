@@ -6,7 +6,7 @@
 
 **Scope note:** This is plan M0a, the first half of the spec's M0. It does **not** complete M0: Torque3D does not boot in a browser tab when this plan ends. That is M0b, which cannot be planned until Tasks 7 and 8 below produce the findings they exist to produce. See "What M0a Deliberately Does Not Do" at the end.
 
-**Architecture:** Torque3D 4.0 already uses SDL2 as its universal platform layer on every platform (`Engine/source/CMakeLists.txt:32`, `set(TORQUE_SDL ON) # we need sdl to do our platform interop`), and the vendored SDL2 in `Engine/lib/sdl/` already contains a complete Emscripten backend. M0 exploits this: rather than writing a platform layer, we add an Emscripten toolchain and a GLES3 profile path, then let SDL2's existing Emscripten backend carry windowing, input, and audio. Rendering targets GLES 3.0, which Emscripten maps onto WebGL2.
+**Architecture:** Torque3D 4.0 already uses SDL2 as its universal platform layer on every platform (`Engine/source/CMakeLists.txt:31`, `set(TORQUE_SDL ON) # we need sdl to do our platform interop`), and the vendored SDL2 in `Engine/lib/sdl/` already contains a complete Emscripten backend. M0 exploits this: rather than writing a platform layer, we add an Emscripten toolchain and a GLES3 profile path, then let SDL2's existing Emscripten backend carry windowing, input, and audio. Rendering targets GLES 3.0, which Emscripten maps onto WebGL2.
 
 **Tech Stack:** C++17, CMake ≥ 3.21.0, MSVC 14.44 (VS2022 Community), Emscripten 4.0.9, SDL2 (vendored), OpenGL ES 3.0 / WebGL2, Python 3.14 (dev server), Node 24 + Playwright (browser test harness).
 
@@ -14,7 +14,7 @@
 
 ## Global Constraints
 
-- C++ standard is **C++17** — set by upstream at `CMakeLists.txt:4` (`set (CMAKE_CXX_STANDARD 17)`). Do not raise it.
+- C++ standard is **C++17** — set by upstream at `CMakeLists.txt:2` (`set (CMAKE_CXX_STANDARD 17)`). Do not raise it.
 - CMake minimum is **3.21.0** — upstream `CMakeLists.txt:1`.
 - `TORQUE_APP_NAME` **must** be set on the CMake command line or configure fails with `Please set TORQUE_APP_NAME first` (`CMakeLists.txt:15`). Use `BaseGame` throughout M0.
 - Torque3D is pinned at commit **`4c44642aab32cf79be4f66966d49fd74ab18e221`** (branch `development`), recorded in `third_party/Torque3D.pin`. Never build against a floating `development`.
@@ -969,7 +969,7 @@ emcmake cmake -S third_party/Torque3D -B build/web-t3d \
 
 Read the log and group failures by cause. The categories to expect, based on the source read of `Engine/source/CMakeLists.txt`:
 
-- **vcpkg audio dependencies** — `find_package(Ogg CONFIG REQUIRED)` and the five siblings at `Engine/source/CMakeLists.txt:8+`. These are host-built binaries and cannot link into a wasm target. Expected fix: bypass vcpkg for Emscripten and use Emscripten's own ports (`-sUSE_OGG=1 -sUSE_VORBIS=1 -sUSE_FLAC=1`).
+- **vcpkg audio dependencies** — `find_package(Ogg CONFIG REQUIRED)` and the five siblings at `Engine/source/CMakeLists.txt:11+`. These are host-built binaries and cannot link into a wasm target. Expected fix: bypass vcpkg for Emscripten and use Emscripten's own ports (`-sUSE_OGG=1 -sUSE_VORBIS=1 -sUSE_FLAC=1`).
 - **Platform detection** — `if(WIN32)` / `elseif(UNIX)` branches at `Engine/source/CMakeLists.txt:40-62`. Emscripten defines neither, so it falls through to `platformX11` or nothing.
 - **`find_package(Freetype REQUIRED)`** at `Engine/source/CMakeLists.txt:60`, in the `UNIX AND NOT APPLE` branch.
 - **`nativeFileDialogs`** — `Engine/lib/nativeFileDialogs/CMakeLists.txt`, a Win32/Cocoa library with no browser equivalent.

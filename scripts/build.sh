@@ -36,7 +36,11 @@ scripts/build.sh -- build stages for BeamNGWeb
             third_party/Torque3D is at the pinned commit. Cheap; run it first.
 
   fetch     Clone Torque3D at the pinned commit into the git-ignored
-            third_party/. Idempotent -- a no-op if already at the pin.
+            third_party/. Idempotent -- a no-op if already at the pin. Also
+            applies the tracked patches in patches/torque3d/.
+
+  patch     Re-apply the tracked Torque3D patches. Idempotent; a no-op when the
+            tree already carries them. Run after any edit to patches/.
 
   native    Configure and build the Windows game (Torque3D BaseGame).
             Slow on a cold run: Torque3D bootstraps its own vcpkg checkout and
@@ -70,9 +74,22 @@ stage_fetch() {
   bash scripts/fetch-torque3d.sh
 }
 
+stage_patch() {
+  bash scripts/apply-patches.sh
+}
+
 stage_native() {
   [ -f third_party/Torque3D/CMakeLists.txt ] \
     || die "third_party/Torque3D is missing. Run: scripts/build.sh fetch"
+  # MSBuild is a .NET tool and stores the child environment in a case-sensitive
+  # dictionary, but Windows environment variables are case-insensitive. If both
+  # HTTP_PROXY and http_proxy (or the HTTPS pair) are present, MSBuild aborts the
+  # compiler test with MSB6001 ("Item has already been added"), and CMake then
+  # reports the misleading "No CMAKE_C_COMPILER could be found". Many tools export
+  # the lowercase forms alongside Windows' uppercase ones, so drop the duplicate.
+  # Only the lowercase copy is removed, so proxy configuration is preserved.
+  if [ -n "${HTTPS_PROXY:-}" ] && [ -n "${https_proxy:-}" ]; then unset https_proxy; fi
+  if [ -n "${HTTP_PROXY:-}" ]  && [ -n "${http_proxy:-}"  ]; then unset http_proxy;  fi
   # //c, not /c: MSYS2 rewrites a single leading slash into a Windows path.
   cmd //c "scripts\\build-native.cmd"
 }
@@ -149,6 +166,7 @@ main() {
     "")       usage ;;
     check)    stage_check ;;
     fetch)    stage_fetch ;;
+    patch)    stage_patch ;;
     native)   stage_native ;;
     web)      shift; stage_web "$@" ;;
     run)      stage_run ;;
