@@ -47,6 +47,14 @@ scripts/build.sh -- build stages for BeamNGWeb
             third_party/Torque3D, which removes the link with the old checkout.
             Run automatically by "native".
 
+  gather [args]
+            Find every BeamNG.drive install on this machine and convert levels
+            from them into game-files/assets. Arguments pass straight through,
+            so "scripts/build.sh gather --list" reports what is available and
+            writes nothing, and "scripts/build.sh gather --all" converts
+            everything. Only git-ignored content is written; see
+            tools/gather-content.py.
+
   native    Configure and build the Windows game (Torque3D BaseGame).
             Slow on a cold run: Torque3D bootstraps its own vcpkg checkout and
             builds six audio codec libraries first.
@@ -92,10 +100,17 @@ stage_link() {
   [ -d "third_party/Torque3D/My Projects/BaseGame/game/data" ] || return 0
   if [ ! -d game-files/assets/BeamNGMaps ]; then
     note "no converted content yet; skipping the game-files junction"
-    note "  generate some with: python tools/steam-level.py smallgrid"
+    note "  generate some with: scripts/build.sh gather --all"
     return 0
   fi
   cmd //c "scripts\\link-game-files.cmd"
+}
+
+# Content gathering lives in Python because it has to read Steam's
+# libraryfolders.vdf and walk a few hundred megabytes of level zips; this stage
+# only forwards arguments so the two do not drift.
+stage_gather() {
+  python tools/gather-content.py "$@"
 }
 
 stage_native() {
@@ -194,6 +209,7 @@ main() {
     fetch)    stage_fetch ;;
     patch)    stage_patch ;;
     link)     stage_link ;;
+    gather)   shift; stage_gather "$@" ;;
     native)   stage_native ;;
     web)      shift; stage_web "$@" ;;
     run)      stage_run ;;

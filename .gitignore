@@ -1,17 +1,45 @@
-# BeamNG content — licensed material, never committed, never deployed.
-# Served from the local Steam install over localhost only. See spec section 3.
-assets/
+# ---------------------------------------------------------------------------
+# Non-distributable content — never committed, never deployed.
+#
+# BeamNG.drive's EULA forbids distributing the Software "or part of it", and
+# the modding guidelines it defers to forbid using its copyrighted content. A
+# converted level embeds BeamNG's terrain, meshes and materials, so none of it
+# may enter this repository or any build output. See
+# docs/findings/beamng-redistribution-policy.md for the clauses themselves.
+#
+# Two layers of defence, because a directory rule only covers the paths we
+# expect: the directories conversion writes to, and the file formats that only
+# ever come from BeamNG, so a stray copy anywhere in the tree is still caught.
+#
+# NOTE: gitignore has no trailing comments. A "#" after a pattern becomes part
+# of the pattern, so every comment here is on its own line.
+# ---------------------------------------------------------------------------
 
-# Converted game content, relocated out of the disposable third_party/ tree.
-# Everything under here is a build artefact produced by tools/steam-level.py
-# from a locally installed BeamNG.drive, and it embeds BeamNG's licensed
-# terrain, meshes and materials, so it is never committed. It lives at the
-# repository root because third_party/Torque3D is re-clonable and its contents
-# are not expected to survive; scripts/link-game-files.cmd junctions it back to
-# the data/ directory the engine resolves against its own executable.
-# See docs/findings/beamng-redistribution-policy.md.
+# Where converted content is written. It lives at the repository root rather
+# than inside third_party/Torque3D because that tree is re-clonable by
+# scripts/fetch-torque3d.sh and its contents are not expected to survive;
+# scripts/link-game-files.cmd junctions it back to the data/ directory the
+# engine resolves against its own executable.
+assets/
 game-files/*
 !game-files/README.md
+
+# Extracted levels, if a level zip is ever unpacked inside the tree.
+content/
+
+# BeamNG's own formats, and the artefacts of converting them. None of these
+# appear in the repository legitimately, so they are ignored wherever they
+# land — including outside the directories above.
+*.ter
+*.terrain.json
+*.materials.json
+*.forestbrushes.json
+*.cdae
+*.tsmesh
+*.prefab
+*.jbeam
+*.pc
+items.level.json
 
 # Local agent state. Not part of the project.
 .workbuddy-ai/
