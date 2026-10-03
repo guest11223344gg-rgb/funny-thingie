@@ -19,6 +19,16 @@ out/
 *.wasm
 *.wasm.map
 
+# Test output. The TORQUE_TESTING build writes gtest XML to the working
+# directory, which for scripts/build-native.cmd is the repository root.
+test_detail.xml
+
+# Browser test harness. node_modules is restored by `npm install`; the
+# Playwright output directories are written on every run.
+node_modules/
+test-results/
+playwright-report/
+
 # Emscripten
 .emscripten_cache/
 
