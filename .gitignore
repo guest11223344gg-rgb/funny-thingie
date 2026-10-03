@@ -74,6 +74,11 @@ playwright-report/
 # Emscripten
 .emscripten_cache/
 
+# Python bytecode. tools/steam-level.py is run directly; importing it, or
+# running it with -m, leaves a cache directory beside it.
+__pycache__/
+*.pyc
+
 # Editor / OS
 .vs/
 .vscode/

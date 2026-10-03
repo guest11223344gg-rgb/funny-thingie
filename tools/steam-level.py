@@ -8,13 +8,20 @@ suggest. This tool converts what it can:
 | BeamNG | this tool |
 | --- | --- |
 | `theTerrain.ter` (version 9) | loaded as-is; the layout is version 7 |
-| `art/terrains/main.materials.json` | TerrainMaterial + ImageAsset per layer |
+| `art/terrains/main.materials.json` | TerrainMaterial + Material + ImageAsset per layer |
 | `main/MissionGroup/**/items.level.json` | Scene objects |
 | `TSStatic` | `TSStatic` (`.dae` shape) |
 | `Prefab` instance | its `.prefab` expanded, transformed, inlined |
 | `ScatterSky` / `LevelInfo` / `CloudLayer` | same classes |
 | `DecalRoad`, `River`, `GroundCover`, `BeamNG*` | skipped |
-| `.dae` meshes | copied; mesh textures are **not** converted |
+| `.dae` meshes | copied; their textures are **not** converted |
+| `<name>.link` indirection | followed into `content/assets/**/*.zip` |
+
+A level zip is not self-contained. Where it would hold a texture or mesh it may
+instead hold a `.link` file naming a path under `/assets/...`, which resolves
+into one of the shared packs in `content/assets/`. `ContentSource` follows those
+links; without it, linked content looks missing (gridmap_v2's `Mud` layer lost
+its texture that way while the other seven layers resolved).
 
 BeamNG's terrain is version 9 but uses the version 7 binary layout Torque3D
 reads (see `patches/torque3d/0002-terrain-accept-beamng-v8-v9.patch`).
@@ -73,6 +80,86 @@ KEPT_CLASSES = {"TSStatic", "Prefab", "ScatterSky", "LevelInfo", "CloudLayer"}
 
 class ConvertError(Exception):
     pass
+
+
+# ---------------------------------------------------------------------------
+# content resolution
+# ---------------------------------------------------------------------------
+
+class ContentSource:
+    """Reads level content, following BeamNG's `.link` indirection.
+
+    A modern level zip does not have to contain the files it uses. Where a
+    texture or mesh would be, there may instead be a `<name>.link` file holding
+    JSON such as::
+
+        {"path": "/assets/materials/terrain/mud/mud/t_mud_b.png",
+         "type": "normal"}
+
+    The real file then lives in one of the shared packs under
+    `content/assets/**/*.zip`, addressed by that `/assets/...` path. Reading
+    only the level zip therefore makes linked content look absent -- which is
+    how gridmap_v2's `Mud` layer lost its texture while the other seven layers
+    resolved fine.
+    """
+
+    def __init__(self, level: zipfile.ZipFile, install: Path):
+        self.level = level
+        self.install = install
+        self._level_names = set(level.namelist())
+        self._shared: dict[str, tuple[zipfile.ZipFile, str]] = {}
+        self._open: list[zipfile.ZipFile] = []
+        self._index_shared()
+
+    def _index_shared(self) -> None:
+        root = self.install / "content" / "assets"
+        if not root.is_dir():
+            return
+        for pack in sorted(root.rglob("*.zip")):
+            try:
+                archive = zipfile.ZipFile(pack)
+            except (zipfile.BadZipFile, OSError):
+                continue
+            self._open.append(archive)
+            for name in archive.namelist():
+                if name.endswith("/"):
+                    continue
+                self._shared.setdefault(name.lower(), (archive, name))
+
+    def read(self, path: str) -> bytes | None:
+        """Bytes for a content path, or None. Follows a `.link` if present."""
+        key = path.lstrip("/")
+        if key in self._level_names:
+            return self.level.read(key)
+
+        link = f"{key}.link"
+        if link in self._level_names:
+            return self._read_link(link)
+
+        hit = self._shared.get(key.lower())
+        return hit[0].read(hit[1]) if hit else None
+
+    def _read_link(self, link: str) -> bytes | None:
+        try:
+            data = json.loads(self.level.read(link).decode("utf-8-sig"))
+        except (ValueError, UnicodeDecodeError, KeyError):
+            return None
+        target = (data.get("path") or "").lstrip("/")
+        if not target:
+            return None
+        hit = self._shared.get(target.lower())
+        return hit[0].read(hit[1]) if hit else None
+
+    def close(self) -> None:
+        for archive in self._open:
+            archive.close()
+        self._open.clear()
+
+    def __enter__(self) -> "ContentSource":
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        self.close()
 
 
 # ---------------------------------------------------------------------------
@@ -407,11 +494,63 @@ def emit_sky(objects: list[dict]) -> tuple[list[str], list[str]]:
                   '      brightness = "1";',
                   "   };"]
 
+    lines += emit_sun(sky)
+    notes.append("Sun added: Torque3D lights the world with Sun, not ScatterSky")
+
     clouds = by_class.get("CloudLayer")
     if clouds:
         notes.append("CloudLayer skipped: it references BeamNG sky-normal textures")
 
     return lines, notes
+
+
+# BeamNG's ScatterSky carries the sun as a colour (sunScale) plus a scale on a
+# sky-gradient ambient (ambientScale). Torque3D's Sun wants an ambient *colour*,
+# and no gradient is available here, so ambientScale is taken as a fraction of
+# itself. The stock BaseGame level sits at about 0.34 0.53 0.62, and this lands
+# in the same range.
+AMBIENT_FROM_SKY_SCALE = 0.4
+
+# Mirrors the Sun block in the stock
+# data/ExampleModule/levels/ExampleLevel.mis, which is the configuration the
+# BaseGame is known to light correctly.
+SUN_SHADOW_DEFAULTS = [
+    'texSize = "2048";',
+    'overDarkFactor = "3000 1500 750 250";',
+    'shadowDistance = "200";',
+    'shadowSoftness = "0.25";',
+    'logWeight = "0.9";',
+    'fadeStartDistance = "0";',
+]
+
+
+def emit_sun(sky: dict | None) -> list[str]:
+    """The light source, which Torque3D takes from a Sun object.
+
+    A mission with only a ScatterSky draws its sky and leaves every surface
+    unlit -- geometry renders as pure black silhouettes against a blue
+    background, which is exactly what a converted BeamNG level looked like.
+    """
+    azimuth = torque_value(sky["azimuth"]) if sky and "azimuth" in sky else "35"
+    elevation = torque_value(sky["elevation"]) if sky and "elevation" in sky else "45"
+    color = torque_value(sky["sunScale"]) if sky and "sunScale" in sky \
+        else "1 0.95 0.9 1"
+
+    ambient = "0.34 0.53 0.62 1"
+    if sky and "ambientScale" in sky:
+        scale = as_float_list(sky["ambientScale"])
+        if scale and len(scale) >= 3:
+            ambient = torque_value([min(1.0, c * AMBIENT_FROM_SKY_SCALE) for c in scale[:3]]
+                                   + [scale[3] if len(scale) > 3 else 1])
+
+    body = ["   new Sun(theSun) {",
+            f'      azimuth = "{azimuth}";',
+            f'      elevation = "{elevation}";',
+            f'      color = "{color}";',
+            f'      ambient = "{ambient}";']
+    body += [f"      {line}" for line in SUN_SHADOW_DEFAULTS]
+    body.append("   };")
+    return body
 
 
 # ---------------------------------------------------------------------------
@@ -436,43 +575,103 @@ def material_textures(archive: zipfile.ZipFile, root: str) -> dict[str, dict]:
         name = entry.get("internalName")
         if not name:
             continue
-        # Prefer the detail maps: they tile, which is what Torque's diffuse and
-        # normal slots expect. The "base" maps are a single map-wide stretch.
+        # BeamNG splits a terrain layer into three texture tiers, and Torque's
+        # TerrainMaterial has a slot for each:
+        #
+        #   *BaseTex   -> diffuseMapAsset   one map stretched over the terrain
+        #   *DetailTex -> detailMapAsset    the per-layer tiling texture
+        #   *MacroTex  -> macroMapAsset     per-layer variation at distance
+        #
+        # The mapping is direct, but note that Torque's "diffuse" is the *base*
+        # slot, not the tiling one. Feeding the detail texture to diffuseMap
+        # (as this tool first did) leaves detailMap empty, and
+        # TerrainCellMaterial skips any layer without a detail map when it
+        # builds the blend -- so the terrain drew nothing but its base texture.
         out[name] = {
-            "diffuse": entry.get("baseColorDetailTex") or entry.get("baseColorBaseTex"),
+            "diffuse": entry.get("baseColorBaseTex"),
+            "detail": entry.get("baseColorDetailTex"),
             "normal": entry.get("normalDetailTex") or entry.get("normalBaseTex"),
+            "macro": entry.get("baseColorMacroTex"),
             "diffuseSize": entry.get("diffuseSize", 50),
             "detailSize": entry.get("detailSize", 2),
+            "macroSize": entry.get("macroSize", 200),
         }
     return out
 
 
+def _write_image_asset(textures_dir: Path, asset_name: str, texture_name: str) -> str:
+    (textures_dir / f"{asset_name}.asset.taml").write_text(
+        f'<ImageAsset\n    AssetName="{asset_name}"\n'
+        f'    imageFile="@assetFile={texture_name}"/>\n',
+        encoding="utf-8",
+    )
+    return f"terrains/{asset_name}.asset.taml"
+
+
 def emit_terrain_materials(materials: dict[str, dict], layer_names, module, level_id,
-                           archive, level_dir, root, prefix_rewrite) -> tuple[list[str], list[str]]:
-    """Write ImageAsset + TerrainMaterialAsset per terrain layer."""
+                           content: "ContentSource", level_dir) -> tuple[list[str], list[str]]:
+    """Write the terrain layer assets: textures, TerrainMaterials, Materials.
+
+    Two different systems look the same layer up by the same name, so each
+    layer produces both:
+
+    * `TerrainMaterial` -- what the terrain actually renders with. Found via
+      `TerrainMaterial::findOrCreate(name)`, which resolves through
+      `TerrainMaterialAsset`'s `materialDefinitionName`.
+    * `Material` -- what `MaterialList::mapMaterials()` resolves. That list is
+      built from the same layer names and looked up through
+      `MaterialManager::getMapEntry()`, which is only populated by a Material
+      declaring `mapTo`. Without it the engine logs "Unable to find material
+      for texture: Grass" once per layer and terrain collision has no material.
+    """
     written: list[str] = []
+    notes: list[str] = []
+    done = 0
     textures_dir = level_dir / "terrains"
     textures_dir.mkdir(parents=True, exist_ok=True)
 
+    # (key in the material dict, TerrainMaterial field, asset-name suffix)
+    slots = (
+        ("detail", "detailMapAsset", "detail"),
+        ("diffuse", "diffuseMapAsset", "base"),
+        ("normal", "normalMapAsset", "normal"),
+        ("macro", "macroMapAsset", "macro"),
+    )
+
     for layer in layer_names:
         info = materials.get(layer)
-        if not info or not info.get("diffuse"):
+        if not info or not info.get("detail"):
+            notes.append(f"{layer}: no material entry, skipped")
             continue
 
-        # Copy the diffuse texture next to the material.
-        source = info["diffuse"].lstrip("/")
-        if source not in archive.namelist():
-            continue
-        texture_name = Path(source).name
-        (textures_dir / texture_name).write_bytes(archive.read(source))
+        fields: list[str] = []
+        diffuse_ref = None
+        detail_ref = None
+        normal_ref = None
+        for key, field, suffix in slots:
+            source = info.get(key)
+            if not source:
+                continue
+            blob = content.read(source)
+            if blob is None:
+                notes.append(f"{layer}: {key} {source} not found")
+                continue
+            texture_name = Path(source).name
+            (textures_dir / texture_name).write_bytes(blob)
+            asset = f"{level_id}_{sanitize(layer)}_{suffix}"
+            written.append(_write_image_asset(textures_dir, asset, texture_name))
+            fields.append(f'   {field} = "{module}:{asset}";')
+            ref = f"{module}:{asset}"
+            if key == "diffuse":
+                diffuse_ref = ref
+            elif key == "detail":
+                detail_ref = ref
+            elif key == "normal":
+                normal_ref = ref
 
-        image_asset = f"{level_id}_{sanitize(layer)}_image"
-        (textures_dir / f"{image_asset}.asset.taml").write_text(
-            f'<ImageAsset\n    AssetName="{image_asset}"\n'
-            f'    imageFile="@assetFile={texture_name}"/>\n',
-            encoding="utf-8",
-        )
-        written.append(f"terrains/{image_asset}.asset.taml")
+        if not fields:
+            notes.append(f"{layer}: no textures resolved, skipped")
+            continue
 
         mat_asset = f"{level_id}_{sanitize(layer)}_terrainMat"
         # Both the object name and materialDefinitionName must be the terrain
@@ -481,9 +680,11 @@ def emit_terrain_materials(materials: dict[str, dict], layer_names, module, leve
         (textures_dir / f"{mat_asset}.tscript").write_text(
             f'singleton TerrainMaterial({layer})\n'
             "{\n"
-            f'   diffuseMapAsset = "{module}:{image_asset}";\n'
+            + "\n".join(fields) + "\n"
             f'   diffuseSize = "{torque_value(info.get("diffuseSize", 50))}";\n'
             f'   detailSize = "{torque_value(info.get("detailSize", 2))}";\n'
+            f'   detailDistance = "500";\n'
+            f'   macroSize = "{torque_value(info.get("macroSize", 200))}";\n'
             f'   internalName = "{layer}";\n'
             "};\n",
             encoding="utf-8",
@@ -499,7 +700,43 @@ def emit_terrain_materials(materials: dict[str, dict], layer_names, module, leve
         )
         written.append(f"terrains/{mat_asset}.asset.taml")
 
-    return written, []
+        # The Material object is deliberately *not* named after the layer. A
+        # Material and the TerrainMaterial above would otherwise both be called
+        # "Grass", and TerrainMaterialAsset::initializeAsset() resolves the
+        # TerrainMaterial with a plain Sim::findObject(name) -- which would find
+        # the Material and leave the terrain material unbound.
+        #
+        # A Material has no detail/macro slots, so it takes the tiling detail
+        # texture where there is one: that is what a shape wants to show.
+        material_asset = f"{level_id}_{sanitize(layer)}_material"
+        stage_diffuse = detail_ref or diffuse_ref
+        if not stage_diffuse:
+            # Only a normal or macro map resolved; a Material needs an albedo,
+            # so borrow whichever texture we do have.
+            stage_diffuse = fields[0].split('"')[1]
+        normal_stage = (f'\n                NormalMapAsset="@asset={normal_ref}"'
+                        if normal_ref else "")
+        (textures_dir / f"{material_asset}.asset.taml").write_text(
+            f'<MaterialAsset\n'
+            f'    AssetName="{material_asset}"\n'
+            f'    materialDefinitionName="{material_asset}"\n'
+            f'    imageMap0="@asset={stage_diffuse}">\n'
+            f'    <Material\n'
+            f'        Name="{material_asset}"\n'
+            f'        mapTo="{layer}">\n'
+            f'        <Material.Stages>\n'
+            f'            <Stages_beginarray\n'
+            f'                DiffuseMapAsset="@asset={stage_diffuse}"{normal_stage}/>\n'
+            f'        </Material.Stages>\n'
+            f'    </Material>\n'
+            f'</MaterialAsset>\n',
+            encoding="utf-8",
+        )
+        written.append(f"terrains/{material_asset}.asset.taml")
+        done += 1
+
+    notes.append(f"terrain materials: {done} of {len(layer_names)} layers")
+    return written, notes
 
 
 def sanitize(name: str) -> str:
@@ -511,7 +748,8 @@ def sanitize(name: str) -> str:
 # ---------------------------------------------------------------------------
 
 def write_module(module_dir: Path, module: str, autoclose_seconds: float = 0.0,
-                 start_level_asset: str | None = None) -> None:
+                 start_level_asset: str | None = None,
+                 material_scripts: list[str] | None = None) -> None:
     module_dir.mkdir(parents=True, exist_ok=True)
     (module_dir / f"{module}.module").write_text(
         f"""<ModuleDefinition
@@ -571,10 +809,31 @@ function beamngwebAutoClose()
     body = "\n".join(create_body)
     tail = "".join(helpers)
 
+    # Load the terrain materials here, at module load, rather than leaving the
+    # terrain to resolve them through the asset system while it loads.
+    #
+    # TerrainMaterial::findOrCreate checks the TerrainMaterialSet by internal
+    # name *before* it consults TerrainMaterialAsset, so objects that already
+    # exist are used as-is. Going through the asset system instead is what left
+    # a converted level with a black terrain: every layer fell through to the
+    # placeholder material, which has no detail map and an unresolvable warning
+    # texture. With no detail map TerrainCellMaterial skips the layer entirely,
+    # and the terrain's base texture bakes from the same empty diffuse maps --
+    # so it came out transparent black and the terrain drew as a silhouette.
+    prelude = ""
+    if material_scripts:
+        execs = "\n".join(
+            f'exec("data/{module}/{script}");' for script in material_scripts
+        )
+        prelude = (
+            f"// Terrain materials, loaded ahead of any level that needs them.\n"
+            f"{execs}\n\n"
+        )
+
     (module_dir / f"{module}.tscript").write_text(
         f"""// Levels generated by tools/steam-level.py. See that script for what is
 // and is not converted from a stock BeamNG.drive level.
-function {module}::onCreate(%this)
+{prelude}function {module}::onCreate(%this)
 {{
 {body}
 }}
@@ -736,7 +995,7 @@ def main() -> int:
 
     notes: list[str] = []
 
-    with zipfile.ZipFile(zip_path) as archive:
+    with zipfile.ZipFile(zip_path) as archive, ContentSource(archive, steam) as content:
         terrain_entry = pick_terrain(archive)
         terrain_blob = archive.read(terrain_entry)
         try:
@@ -752,6 +1011,15 @@ def main() -> int:
         terrain_file = Path(terrain_entry).name
         terrain_asset = f"{args.module}:{level_id}Terrain"
         (level_dir / terrain_file).write_bytes(terrain_blob)
+
+        # Drop any cached base texture. Torque bakes one from the terrain's
+        # materials and only regenerates it when it is *older* than the .ter
+        # (TerrainBlock::setFile). A cache baked before the materials resolved
+        # therefore outlives its cause: it is newer than the file it was made
+        # from, so it is never rebuilt, and the terrain renders as a black
+        # silhouette forever. Removing it here forces a fresh bake.
+        for stale in level_dir.glob(f"{Path(terrain_file).stem}_basetex.*"):
+            stale.unlink()
         write_terrain_asset(level_dir / f"{level_id}Terrain.asset.taml",
                             f"{level_id}Terrain", terrain_file)
 
@@ -774,13 +1042,28 @@ def main() -> int:
                                                       z_offset=base_z)
 
             # Copy the meshes the scene references.
+            #
+            # Shape paths arrive in two forms: scene objects carry
+            # `/levels/<name>/art/shapes/...` (level-rooted, leading slash),
+            # while shapes expanded out of a prefab are already relative
+            # (`art/shapes/...`). Both are reduced to a level-relative path and
+            # looked up under the scene root.
+            #
+            # The leading slash is what broke this before: it was compared
+            # straight against archive.namelist(), whose entries have no leading
+            # slash, so nothing ever matched and a converted level shipped its
+            # 12,501 props without a single mesh to draw them with.
             copied = 0
+            marker = f"{scene_root}/"
             for shape in sorted(meshes):
-                if shape not in archive.namelist():
+                key = shape.lstrip("/")
+                rel = key[len(marker):] if key.startswith(marker) else key
+                blob = content.read(f"{scene_root}/{rel}")
+                if blob is None:
                     continue
-                target = level_dir / shape
+                target = level_dir / rel
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(archive.read(shape))
+                target.write_bytes(blob)
                 copied += 1
             notes.append(f"copied {copied} of {len(meshes)} referenced meshes")
 
@@ -792,10 +1075,19 @@ def main() -> int:
             materials = material_textures(archive, scene_root)
             written_materials, mat_notes = emit_terrain_materials(
                 materials, terrain["materials"], args.module, level_id,
-                archive, level_dir, scene_root, lambda p: p)
+                content, level_dir)
             notes += mat_notes
-            notes.append(f"terrain materials: {len(written_materials) // 3} of "
-                         f"{len(terrain['materials'])} layers")
+
+    # The terrain material scripts only exist now, so the module is rewritten
+    # with them in hand. It is generated rather than hand-written precisely so
+    # that this stays in sync with what the conversion produced.
+    material_scripts = [f"levels/{level_id}/{entry}"
+                        for entry in written_materials
+                        if entry.endswith(".tscript")]
+    write_module(module_dir, args.module,
+                 autoclose_seconds=args.autoclose,
+                 start_level_asset=f"{args.module}:{level_id}" if args.autostart else None,
+                 material_scripts=material_scripts)
 
     size = terrain["size"]
     half = size // 2
