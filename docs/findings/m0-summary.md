@@ -29,13 +29,36 @@ stops. The root cause is that CMake initialises `WIN32=1` from the host *before*
 `Engine/` then assembles for X11 Linux. The configure is a Windows-host /
 Linux-target hybrid. Neither half describes a browser.
 
-**Compile: yes, at translation-unit level, and more cleanly than expected.**
-84 representative translation units across all 19 engine directories were
-compiled directly with `emcc`, bypassing CMake: **80 compiled, 3 failed, 1
-blocked.** 15 of the 19 directories compiled every file tried.
+**Compile: at the pinned standard, most rows fail — but on one header, and that is
+a bounded fix, not a broad portability problem.** 84 representative translation
+units across all 19 engine directories were compiled directly with `emcc`,
+bypassing CMake. The sweep was first run at `-std=c++23`, then re-run at the
+standard the plan pins and upstream `CMakeLists.txt:2` declares, **C++17**:
 
-The three failures are all in hand-written platform code, not in the engine's
-portable bulk:
+| Run | Compiled | Failed | Blocked |
+|---|---|---|---|
+| **C++17 — pinned standard (primary)** | **7** | **76** | **1** |
+| C++23 — original sweep (control) | 80 | 3 | 1 |
+
+At C++17, 76 rows fail and **77 of the 84 logs** contain the same error, on the
+same line of the same header:
+
+```
+error: variable of non-literal type 'shared_ptr<WeakControlBlock>' cannot be
+       defined in a constexpr function before C++23
+```
+
+That is `Engine/source/core/util/refBase.h:114`, `auto ctrl = mWeak.lock();`
+inside a `[[nodiscard]] constexpr T* getPointer() const`. Upstream declares C++17
+and then uses a construct ill-formed before C++23; MSVC accepts it as an
+extension, which is why the native build never surfaced it, and clang/emcc refuses
+it. One header, one construct, 77 rows — a named, bounded blocker. It is the same
+class of trap as the `S64` width below: a latent mis-declaration that a permissive
+compiler hides and a strict one exposes. This is the second instance of that
+pattern the probes found.
+
+The C++23 control run shows what sits behind that header. Its four non-passing
+rows, with four distinct causes:
 
 | Row | Cause | Class |
 |---|---|---|
@@ -54,12 +77,13 @@ wasm32's ILP32. The compiler says so: `timeClass.h:65` truncates `8640000000` to
 offsets, GUIDs, tick arithmetic — becomes a wrapping 32-bit value. It produces
 warnings, not errors, so a build succeeds and misbehaves.
 
-**The fraction question, answered honestly:** 80/84 *translation units*. That is
-not "17 of 19 subsystems work". Nothing was linked and nothing was run. Unresolved
-symbols, link ordering, and static initialisation order are entirely untested. On
-the evidence available, the correct statement is: *the engine's C++ is
-overwhelmingly wasm-clean at the compilation unit level, and its build system is
-not wasm-capable at all.*
+**The fraction question, answered honestly:** 7/84 *translation units* at the
+pinned C++17, 80/84 at C++23. Neither is "17 of 19 subsystems work". Nothing was
+linked and nothing was run, so unresolved symbols, link ordering, and static
+initialisation order are entirely untested. On the evidence available, the correct
+statement is: *the engine's C++ compiles cleanly at the compilation unit level when
+built as C++23 — which it does not declare; at the C++17 it does declare, one header
+blocks almost the whole sweep. Its build system is not wasm-capable at all.*
 
 ---
 
@@ -92,7 +116,20 @@ target with fixed floating-point semantics. Small file, real design decision —
 and a good example of why "how many files fail" is the wrong sizing metric.
 
 **Nothing found is unbounded in the sense of "unknown blockers still surfacing"**
-— the compile surface has been swept and its failures have named causes.
+— the compile surface has been swept and its failures have named causes: the
+`refBase.h:114` construct (which alone accounts for 77 of the 84 rows at the pinned
+standard), the x86 inline assembly, the Opcode `__declspec`, the missing
+`execinfo.h`, and the `S64` width. The `refBase.h` cause is the one the first draft
+of this summary omitted; it is the newest of the five and among the cheapest to fix.
+
+**New since the first draft, and now the cheapest high-leverage item: `refBase.h`
+at the pinned standard.** Re-running the sweep at C++17 surfaced one header —
+`Engine/source/core/util/refBase.h:114`, `auto ctrl = mWeak.lock();` in a
+`constexpr` accessor — that is ill-formed before C++23 and accounts for 77 of the 84
+rows. It is a named, bounded blocker: one header, one construct, plausibly a smaller
+fix than the configure repair. **M0b should carry it as a first-class work item, not
+a footnote** — it is the difference between "7 of 84 rows compile" and "80 of 84",
+and it is the single largest determinant of the pinned-standard number.
 
 ---
 
@@ -129,26 +166,42 @@ attractive, not less.
 **Validated — on the evidence available, the port is far cheaper. But the evidence
 covers compilation only, and the decisive test has not been run.**
 
-**First, correct the premise.** The spec does *not* commit to replacing the
-renderer at M2. `docs/.../2026-10-01-beamng-browser-port-design.md:77-80` commits
-to **two renderers behind a stable `RenderQueue` interface**, with `render/t3d`
-swappable for `render/webgl2` as "a concrete substitution behind a stable
-interface rather than a rewrite". The distinction matters for what follows.
+**First, the premise needs both of the spec's passages, not one.** The spec's
+architecture section commits to replacing the renderer:
+`docs/superpowers/specs/2026-10-01-beamng-browser-port-design.md:59-63` (§4.1) says
+`render/t3d` is used "by the browser target during M0-M1 as the walking skeleton,
+before webgl2 replaces it", and that `render/webgl2` "lands at M2". But its
+milestone list, `:144-146` (§5), defines M2 as "One vehicle, rigid" — JBeam parses,
+nodes and beams build, the vehicle renders as a flexbody, wheels spin — and does
+**not** mention the renderer at all. The document both schedules a renderer
+substitution at M2 and describes an M2 with no renderer work in it.
+
+What both passages agree on, and what `:77-80` states directly, is that the two
+renderers sit behind a stable `RenderQueue` interface, so swapping `render/t3d` for
+`render/webgl2` is "a concrete substitution behind a stable interface rather than a
+rewrite". The practical recommendation below survives whichever reading is taken,
+because the seam exists under both. What does not survive is asserting one reading
+as authoritative while the other sits in the same document.
 
 **The argument for the port:**
 
-1. **The engine's portable bulk is already wasm-clean.** 15 of 19 directories
-   compiled every translation unit tried, including all of `scene`, `ts`,
-   `terrain`, `sfx`, `gui`, `materials`, `T3D` and `console`. Those are the
-   subsystems a from-scratch GLES3 renderer would still need written for it.
-   Writing them is a far larger job than porting them.
-2. **The renderer is not the compile blocker.** `gfx/gl` (6/6) and `shaderGen`
-   (4/4) compiled clean, including `tGL/tGL.cpp`, `gfxGLDevice.sdl.cpp` and
-   `shaderGenGLSL.cpp` — the exact files the task brief named as the likely
-   hardest. At compilation level they are not hard at all.
-3. The three real failures are in x86 assembly and third-party platform shims —
-   work that has to be done *either way*, since a from-scratch renderer still has
-   to run inside a host the browser can execute.
+1. **The engine's portable bulk is wasm-clean at C++23, and its C++17 failures are
+   one header, not per-subsystem holes.** In the C++23 control run, 15 of 19
+   directories compiled every translation unit tried, including all of `scene`,
+   `ts`, `terrain`, `sfx`, `gui`, `materials`, `T3D` and `console` — the subsystems
+   a from-scratch GLES3 renderer would still need written for it. At the pinned
+   C++17 most of those rows fail, but on `refBase.h:114`, which is one bounded
+   header fix (Q1, Q2), not 15 subsystems of portability work. Writing those
+   subsystems from scratch is a far larger job than porting them.
+2. **The renderer is not a compile blocker beyond the shared header.** In the C++23
+   control run, `gfx/gl` (6/6) and `shaderGen` (4/4) compiled clean, including
+   `tGL/tGL.cpp`, `gfxGLDevice.sdl.cpp` and `shaderGenGLSL.cpp` — the exact files
+   the task brief named as the likely hardest. At the pinned C++17 they fail on
+   `refBase.h:114`, like almost everything else, not on anything renderer-specific.
+   At compilation level they are not hard at all.
+3. The three real compile failures in the control run are in x86 assembly and
+   third-party platform shims — work that has to be done *either way*, since a
+   from-scratch renderer still has to run inside a host the browser can execute.
 
 **The argument against, stated fairly:** the probe measured compilation, and the
 things that are supposed to be hard about porting a renderer are not compile-time.
@@ -199,5 +252,10 @@ about how hard the port would be, which the probes have now replaced. M0b's
 deliverable should be a wasm build of Torque3D that links, boots in a browser tab
 and renders a frame. That single result validates or refutes Question 4, and it is
 the gate every later milestone sits behind.
+
+M0b's plan should carry two named, bounded work items from the start: the configure
+repair, and `refBase.h:114` — one header that currently blocks 77 of 84 rows at the
+pinned standard and is plausibly cheaper than the configure. The first measurable
+target is the sweep raised to the pinned C++17, not C++23.
 
 The user should approve this summary and M0b's scope before M0b is planned.

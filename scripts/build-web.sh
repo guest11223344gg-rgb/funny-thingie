@@ -36,6 +36,10 @@ case "$TARGET" in
     ;;
 esac
 
+# An inherited CC shadows emcc and silently wins, producing confusing host
+# errors (see docs/findings/m0-compile-matrix-harness.sh).
+unset CC CXX
+
 emcmake cmake -S "$SRC" -B "$BUILD" \
   -DCMAKE_TOOLCHAIN_FILE="$PWD/cmake/toolchains/emscripten.cmake" \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo

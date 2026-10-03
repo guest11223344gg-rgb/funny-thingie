@@ -34,7 +34,7 @@ The script performs exactly this configure step, then builds it:
 ```
 cmake -S third_party\Torque3D -B build\native -G "Visual Studio 17 2022" -A x64 ^
   -DTORQUE_APP_NAME=BaseGame ^
-  -DTORQUE_TESTING=ON ^
+  -DTORQUE_TESTING=OFF ^
   -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build\native --config RelWithDebInfo --parallel
 ```
