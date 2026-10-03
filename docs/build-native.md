@@ -42,6 +42,20 @@ cmake --build build\native --config RelWithDebInfo --parallel
 This is the invocation later tasks reuse for the Emscripten target, with the
 generator and toolchain swapped.
 
+### `TORQUE_BUILD_DIR`
+
+The build directory defaults to `build\native`. Set `TORQUE_BUILD_DIR` to use a
+different one:
+
+```
+TORQUE_BUILD_DIR=build\native-x64 bash scripts/build.sh native
+```
+
+A build directory is not interchangeable once configured, because vcpkg's
+manifest mode cannot be turned off in a directory where it was first enabled
+(see Troubleshooting). Keeping the workaround directory separate from the
+default one is why the override exists.
+
 ## vcpkg and the audio codec libraries
 
 `third_party/Torque3D/vcpkg.json` declares six dependencies — `libogg`,
@@ -167,4 +181,27 @@ build, so it is handled there. To do it by hand:
 unset http_proxy https_proxy    # or the uppercase pair; one of each must go
 cmd //c scripts\build-native.cmd
 ```
+
+### `vcpkg manifest mode was disabled for a build directory where it was initially enabled`
+
+If a configure first enables vcpkg's manifest mode and a later one passes
+`-DVCPKG_MANIFEST_MODE=OFF`, vcpkg refuses to continue:
+
+```
+CMake Error at build/native/vcpkg/scripts/buildsystems/vcpkg.cmake:984 (message):
+  vcpkg manifest mode was disabled for a build directory where it was
+  initially enabled.
+
+  This is not supported.  Please delete the build directory and reconfigure.
+```
+
+The marker lives in the CMake cache (`Z_VCPKG_CHECK_MANIFEST_MODE`), so the
+directory cannot be flipped back. Configure a second directory with
+`-DVCPKG_MANIFEST_MODE=OFF` from the start — which is what `build\native-x64`
+is — and select it with `TORQUE_BUILD_DIR`. Both directories can share one vcpkg
+checkout and one `vcpkg_installed`; only the cache differs.
+
+Manifest mode is the right default for a clean machine, since it is what
+installs the six audio codec libraries. Turn it off only when those are already
+installed and the install step itself is failing.
 

@@ -4,7 +4,11 @@ REM Run from the repository root: cmd //c scripts\build-native.cmd
 setlocal
 
 set T3D=third_party\Torque3D
-set BUILD=build\native
+REM vcpkg's manifest mode cannot be turned off in a build directory where it was
+REM first enabled, so a directory that needs the workaround described in
+REM docs/build-native.md must be kept separate from the default one.
+if not defined TORQUE_BUILD_DIR set "TORQUE_BUILD_DIR=build\native"
+set BUILD=%TORQUE_BUILD_DIR%
 
 REM cmake is not on PATH on this machine, so resolve it explicitly: prefer a
 REM PATH copy, fall back to the winget install, and fail with a named error.
