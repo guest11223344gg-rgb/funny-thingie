@@ -81,6 +81,15 @@ stage_patch() {
 stage_native() {
   [ -f third_party/Torque3D/CMakeLists.txt ] \
     || die "third_party/Torque3D is missing. Run: scripts/build.sh fetch"
+  # MSBuild is a .NET tool and stores the child environment in a case-sensitive
+  # dictionary, but Windows environment variables are case-insensitive. If both
+  # HTTP_PROXY and http_proxy (or the HTTPS pair) are present, MSBuild aborts the
+  # compiler test with MSB6001 ("Item has already been added"), and CMake then
+  # reports the misleading "No CMAKE_C_COMPILER could be found". Many tools export
+  # the lowercase forms alongside Windows' uppercase ones, so drop the duplicate.
+  # Only the lowercase copy is removed, so proxy configuration is preserved.
+  if [ -n "${HTTPS_PROXY:-}" ] && [ -n "${https_proxy:-}" ]; then unset https_proxy; fi
+  if [ -n "${HTTP_PROXY:-}" ]  && [ -n "${http_proxy:-}"  ]; then unset http_proxy;  fi
   # //c, not /c: MSYS2 rewrites a single leading slash into a Windows path.
   cmd //c "scripts\\build-native.cmd"
 }

@@ -132,3 +132,39 @@ behave differently (GUI window vs console runner). Which object files account
 for the 479,744-byte delta was **not** enumerated; the tests build links the
 GoogleTest library, but we have not verified the rest of the link set. Use
 `ON` only when you actually want to run the unit tests.
+
+## Troubleshooting
+
+### `No CMAKE_C_COMPILER could be found` — duplicate-case proxy variables
+
+The configure can fail at `project()` with
+
+```
+CMake Error at CMakeLists.txt:25 (project):
+  No CMAKE_C_COMPILER could be found.
+```
+
+even though MSVC is installed and the generator selected it. The real error is
+one level down, in `CMakeFiles/CMakeConfigureLog.yaml`:
+
+```
+error MSB6001: Invalid command line switch for "CL.exe".
+System.ArgumentException: Item has already been added.
+  Key in dictionary: 'HTTPS_PROXY'  Key being added: 'https_proxy'
+```
+
+MSBuild is a .NET tool: it stores the child process environment in a
+**case-sensitive** dictionary, while Windows environment variables are
+**case-insensitive**. When both `HTTPS_PROXY` and `https_proxy` (or the `HTTP`
+pair) are set, MSBuild throws and the compiler test never runs — so CMake
+concludes there is no compiler. The message names the compiler; the cause is the
+environment.
+
+`scripts/build.sh native` removes the lowercase duplicate before invoking the
+build, so it is handled there. To do it by hand:
+
+```bash
+unset http_proxy https_proxy    # or the uppercase pair; one of each must go
+cmd //c scripts\build-native.cmd
+```
+
