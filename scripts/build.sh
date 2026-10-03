@@ -15,7 +15,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 # Overridable so a second checkout can run its own server without a collision.
+# 8080 rather than 8000: 8000 is commonly taken by other local tooling.
+# Exported so `npx playwright test` resolves relative URLs against the same
+# port the server was started on.
 PORT="${PORT:-8080}"
+export PORT
 
 # Torque3D writes the executable into the SOURCE tree, not the build directory,
 # so the "My Projects" segment (with its space) is expected, not a mistake.

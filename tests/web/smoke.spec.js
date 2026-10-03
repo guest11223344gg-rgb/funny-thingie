@@ -6,7 +6,7 @@ test('smoke app creates a WebGL2 context and renders geometry', async ({ page })
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
 
-  await page.goto('http://localhost:8080/');
+  await page.goto('/');
   await page.waitForFunction(() => window.__smokeReady === true, { timeout: 20000 });
 
   expect(errors).toEqual([]);
@@ -19,7 +19,7 @@ test('smoke app creates a WebGL2 context and renders geometry', async ({ page })
 });
 
 test('rendered frame is not blank', async ({ page }) => {
-  await page.goto('http://localhost:8080/');
+  await page.goto('/');
   await page.waitForFunction(() => window.__smokeReady === true, { timeout: 20000 });
   await page.waitForTimeout(500); // let a few frames run
 

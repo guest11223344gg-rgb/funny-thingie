@@ -7,7 +7,7 @@ test('pthread writes through SharedArrayBuffer and main thread reads it', async 
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
 
-  await page.goto('http://localhost:8080/');
+  await page.goto('/');
   await page.waitForFunction(() => window.__smokeReady === true, { timeout: 20000 });
   await page.waitForFunction(() => window.__threadTestDone === true, { timeout: 20000 });
 
