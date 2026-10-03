@@ -42,6 +42,11 @@ scripts/build.sh -- build stages for BeamNGWeb
   patch     Re-apply the tracked Torque3D patches. Idempotent; a no-op when the
             tree already carries them. Run after any edit to patches/.
 
+  link      Re-create the junction that makes game-files/assets visible to the
+            engine as data/BeamNGMaps. Idempotent. Needed after any re-fetch of
+            third_party/Torque3D, which removes the link with the old checkout.
+            Run automatically by "native".
+
   native    Configure and build the Windows game (Torque3D BaseGame).
             Slow on a cold run: Torque3D bootstraps its own vcpkg checkout and
             builds six audio codec libraries first.
@@ -78,6 +83,21 @@ stage_patch() {
   bash scripts/apply-patches.sh
 }
 
+# The engine resolves data/<module> against its own executable (see
+# game-files/README.md), so the converted output at game-files/assets has to be
+# junctioned into the game tree. Best-effort here: a checkout with no converted
+# content yet is a normal state, not an error, so a missing target is not fatal
+# -- link-game-files.cmd reports it and this stage moves on.
+stage_link() {
+  [ -d "third_party/Torque3D/My Projects/BaseGame/game/data" ] || return 0
+  if [ ! -d game-files/assets/BeamNGMaps ]; then
+    note "no converted content yet; skipping the game-files junction"
+    note "  generate some with: python tools/steam-level.py smallgrid"
+    return 0
+  fi
+  cmd //c "scripts\\link-game-files.cmd"
+}
+
 stage_native() {
   [ -f third_party/Torque3D/CMakeLists.txt ] \
     || die "third_party/Torque3D is missing. Run: scripts/build.sh fetch"
@@ -85,6 +105,8 @@ stage_native() {
   # only thing that makes an upstream edit survive a re-fetch. Re-assert them
   # here as well as in the web build.
   if [ -d third_party/Torque3D/.git ]; then bash scripts/apply-patches.sh; fi
+  # A re-fetch takes the junction with it, so re-create it before the build.
+  stage_link
   # MSBuild is a .NET tool and stores the child environment in a case-sensitive
   # dictionary, but Windows environment variables are case-insensitive. If both
   # HTTP_PROXY and http_proxy (or the HTTPS pair) are present, MSBuild aborts the
@@ -171,6 +193,7 @@ main() {
     check)    stage_check ;;
     fetch)    stage_fetch ;;
     patch)    stage_patch ;;
+    link)     stage_link ;;
     native)   stage_native ;;
     web)      shift; stage_web "$@" ;;
     run)      stage_run ;;

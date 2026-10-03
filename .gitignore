@@ -2,6 +2,20 @@
 # Served from the local Steam install over localhost only. See spec section 3.
 assets/
 
+# Converted game content, relocated out of the disposable third_party/ tree.
+# Everything under here is a build artefact produced by tools/steam-level.py
+# from a locally installed BeamNG.drive, and it embeds BeamNG's licensed
+# terrain, meshes and materials, so it is never committed. It lives at the
+# repository root because third_party/Torque3D is re-clonable and its contents
+# are not expected to survive; scripts/link-game-files.cmd junctions it back to
+# the data/ directory the engine resolves against its own executable.
+# See docs/findings/beamng-redistribution-policy.md.
+game-files/*
+!game-files/README.md
+
+# Local agent state. Not part of the project.
+.workbuddy-ai/
+
 # Third-party source checkouts. Fetched by scripts/fetch-torque3d.sh, not
 # vendored — the tree is ~900 MB. The pin file IS tracked: it records which
 # upstream commit the build expects.
