@@ -1,0 +1,20 @@
+diff --git a/Engine/source/T3D/assets/TerrainMaterialAsset.cpp b/Engine/source/T3D/assets/TerrainMaterialAsset.cpp
+index 1fdd6182..1d761564 100644
+--- a/Engine/source/T3D/assets/TerrainMaterialAsset.cpp
++++ b/Engine/source/T3D/assets/TerrainMaterialAsset.cpp
+@@ -446,7 +446,14 @@ StringTableEntry TerrainMaterialAsset::getAssetIdByMaterialName(StringTableEntry
+    U32 foundCount = AssetDatabase.findAssetType(&query, "TerrainMaterialAsset");
+    if (foundCount != 0)
+    {
+-      for (U32 i = 0; i < foundCount && materialAssetId == StringTable->EmptyString(); i++)
++      // The loop sentinel must be the fallback id, matching the seed above and
++      // the sibling MaterialAsset::getAssetIdByMaterialName.  Testing against
++      // EmptyString instead made the condition false on the first iteration,
++      // so the search never ran and the fallback id was always returned --
++      // which is why TerrainMaterial::findOrCreate() could never resolve a
++      // layer through the asset system and fell through to an empty
++      // placeholder material, leaving the terrain untextured.
++      for (U32 i = 0; i < foundCount && materialAssetId == TerrainMaterialAsset::smNoTerrainMaterialAssetFallback; i++)
+       {
+          TerrainMaterialAsset* matAsset = AssetDatabase.acquireAsset<TerrainMaterialAsset>(query.mAssetList[i]);
+          if (matAsset)
