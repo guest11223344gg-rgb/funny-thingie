@@ -215,7 +215,7 @@ This is a personal project and is **not a distribution of BeamNG.drive**.
 | Document | What it covers |
 | --- | --- |
 | [`docs/superpowers/specs/`](docs/superpowers/specs/) | The design spec: architecture, milestones, risks |
-| [`docs/superpowers/plans/`](docs/superpowers/plans/) | The M0a implementation plan |
+| [`docs/superpowers/plans/`](docs/superpowers/plans/) | The implementation plans: M0a (walking skeleton), M0b (wasm link, boot, render) |
 | [`docs/findings/m0-emscripten-configure.md`](docs/findings/m0-emscripten-configure.md) | What Torque3D's CMake does under Emscripten, with raw logs |
 | [`docs/findings/m0-compile-matrix.md`](docs/findings/m0-compile-matrix.md) | The 84-translation-unit wasm compile sweep |
 | [`docs/findings/m0-summary.md`](docs/findings/m0-summary.md) | M0 synthesis and the recommendation for what comes next |
