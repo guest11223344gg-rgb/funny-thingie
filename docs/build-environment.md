@@ -54,3 +54,25 @@ cmd.exe //c "C:\emsdk\emsdk.bat activate 4.0.9"
 The engine is pinned in `third_party/Torque3D.pin` and checked out under
 `third_party/Torque3D`. `scripts/env-check.sh` verifies the checkout's `HEAD` matches
 the pin.
+
+## Torque3D patches
+
+`third_party/Torque3D` is git-ignored and disposable, so it is **never edited by hand**.
+Every change to upstream source lives in a numbered patch under `patches/torque3d/`,
+applied by `scripts/apply-patches.sh`:
+
+```bash
+./scripts/build.sh patch        # or: bash scripts/apply-patches.sh
+```
+
+The script is idempotent — a patch already present is skipped — and it is called
+automatically by `scripts/fetch-torque3d.sh` (after checkout) and by
+`scripts/build-web.sh` (before configuring), so a build cannot run against a pristine
+tree. A patch that neither applies nor is already applied is a hard error, because
+silently continuing would build the wrong tree. Patch order is filename order; keep the
+numeric prefixes sequential.
+
+| Patch | What it fixes |
+| --- | --- |
+| `0001-refbase-getpointer-not-constexpr.patch` | `core/util/refBase.h` — drops an ill-formed `constexpr` that blocks 77 of 84 wasm compile rows at the pinned C++17. Measured effect: the sweep goes from **7** compiling rows to **80** (3 FAIL, 1 INCL), i.e. identical to the C++23 control run. |
+

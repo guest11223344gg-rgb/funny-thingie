@@ -36,7 +36,11 @@ scripts/build.sh -- build stages for BeamNGWeb
             third_party/Torque3D is at the pinned commit. Cheap; run it first.
 
   fetch     Clone Torque3D at the pinned commit into the git-ignored
-            third_party/. Idempotent -- a no-op if already at the pin.
+            third_party/. Idempotent -- a no-op if already at the pin. Also
+            applies the tracked patches in patches/torque3d/.
+
+  patch     Re-apply the tracked Torque3D patches. Idempotent; a no-op when the
+            tree already carries them. Run after any edit to patches/.
 
   native    Configure and build the Windows game (Torque3D BaseGame).
             Slow on a cold run: Torque3D bootstraps its own vcpkg checkout and
@@ -68,6 +72,10 @@ stage_check() {
 
 stage_fetch() {
   bash scripts/fetch-torque3d.sh
+}
+
+stage_patch() {
+  bash scripts/apply-patches.sh
 }
 
 stage_native() {
@@ -149,6 +157,7 @@ main() {
     "")       usage ;;
     check)    stage_check ;;
     fetch)    stage_fetch ;;
+    patch)    stage_patch ;;
     native)   stage_native ;;
     web)      shift; stage_web "$@" ;;
     run)      stage_run ;;
