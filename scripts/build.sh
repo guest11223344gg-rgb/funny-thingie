@@ -81,6 +81,10 @@ stage_patch() {
 stage_native() {
   [ -f third_party/Torque3D/CMakeLists.txt ] \
     || die "third_party/Torque3D is missing. Run: scripts/build.sh fetch"
+  # The checkout is git-ignored and disposable, so the tracked patches are the
+  # only thing that makes an upstream edit survive a re-fetch. Re-assert them
+  # here as well as in the web build.
+  if [ -d third_party/Torque3D/.git ]; then bash scripts/apply-patches.sh; fi
   # MSBuild is a .NET tool and stores the child environment in a case-sensitive
   # dictionary, but Windows environment variables are case-insensitive. If both
   # HTTP_PROXY and http_proxy (or the HTTPS pair) are present, MSBuild aborts the

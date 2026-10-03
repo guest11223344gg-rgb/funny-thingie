@@ -1,0 +1,70 @@
+diff --git a/Engine/source/terrain/terrFile.cpp b/Engine/source/terrain/terrFile.cpp
+index 28689c0d..f75dd458 100644
+--- a/Engine/source/terrain/terrFile.cpp
++++ b/Engine/source/terrain/terrFile.cpp
+@@ -305,9 +305,9 @@ TerrainFile* TerrainFile::load( const Torque::Path &path )
+ 
+    U8 version;
+    stream.read(&version);
+-   if (version > TerrainFile::FILE_VERSION)
++   if (version > TerrainFile::BEAMNG_FILE_VERSION)
+    {
+-      Con::errorf( "Resource<TerrainFile>::create - file version '%i' is newer than engine version '%i'", version, TerrainFile::FILE_VERSION );
++      Con::errorf( "Resource<TerrainFile>::create - file version '%i' is newer than engine version '%i'", version, TerrainFile::BEAMNG_FILE_VERSION );
+       return NULL;
+    }
+ 
+@@ -350,6 +350,19 @@ void TerrainFile::_load( FileStream &stream )
+    // Get the material name count.
+    U32 materialCount;
+    stream.read( &materialCount );
++
++   // BeamNG's terrain JSON sidecar advertises an optional layerTextureMap
++   // between the layer map and the material names.  No stock level we measured
++   // contains one, but if a future file does then the value we just read is
++   // four bytes of texture data rather than a count.  Refuse an implausible
++   // count instead of trying to allocate it.
++   if ( materialCount > 1024 )
++   {
++      Con::errorf( "Resource<TerrainFile>::create - '%s' declares %i terrain materials; tail unreadable",
++                   mFilePath.getFullPath().c_str(), materialCount );
++      materialCount = 0;
++   }
++
+    Vector<String> materials;
+    materials.setSize( materialCount );
+ 
+@@ -359,6 +372,13 @@ void TerrainFile::_load( FileStream &stream )
+ 
+    // Resolve the TerrainMaterial objects from the names.
+    _resolveMaterials( materials );
++
++   // The version 7 layout must consume the file exactly.  If bytes remain the
++   // file uses a layout we do not understand and the material list above is
++   // suspect, so say so rather than rendering a map with the wrong materials.
++   if ( stream.getPosition() != stream.getStreamSize() )
++      Con::warnf( "Resource<TerrainFile>::create - '%s' has %i unread trailing bytes (version %i); materials may be wrong",
++                  mFilePath.getFullPath().c_str(), stream.getStreamSize() - stream.getPosition(), mFileVersion );
+ }
+ 
+ void TerrainFile::_loadLegacy(  FileStream &stream )
+diff --git a/Engine/source/terrain/terrFile.h b/Engine/source/terrain/terrFile.h
+index 568184aa..e3b3c374 100644
+--- a/Engine/source/terrain/terrFile.h
++++ b/Engine/source/terrain/terrFile.h
+@@ -131,7 +131,14 @@ public:
+ 
+    enum Constants
+    {
+-      FILE_VERSION = 7
++      FILE_VERSION = 7,
++
++      /// BeamNG.drive stamps its terrain files with version 8 and 9 while
++      /// keeping the version 7 binary layout.  Accepting those lets a stock
++      /// Steam level's terrain load unchanged.  _load() checks that the file
++      /// is consumed exactly, so a genuine layout change is reported rather
++      /// than silently mis-parsed.
++      BEAMNG_FILE_VERSION = 9
+    };
+ 
+    TerrainFile();
